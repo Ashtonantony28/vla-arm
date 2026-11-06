@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "armctl"
+version = "0.1.0"
+description = "Host driver for the VLA arm controller board (protocol v1), kinematics, safety, teleop"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26", "pyserial>=3.5", "pyyaml>=6"]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "hypothesis>=6"]
+
+[project.scripts]
+armctl-ping = "armctl.cli:ping_main"
+armctl-teleop = "armctl.cli:teleop_main"
+
+[tool.setuptools]
+packages = ["armctl"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
