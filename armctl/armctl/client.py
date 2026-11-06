@@ -416,10 +416,27 @@ class ArmClient:
 
     def enable(self, move_ms: int = 500) -> None:
         """Torque on, holding the current measured pose."""
-        q = self.positions(fresh=True)
-        if self.safety:
-            self.safety.reset(q)
-        self.set_targets(q, move_ms)
+        # Right after boot the firmware NACKs torque-enable (REJECTED_FAULTED, no fault bits
+        # set) until every servo has been read once (~6 ms). Found by the firmware cross-test;
+        # retry briefly in that case only.
+        deadline = time.monotonic() + 0.1
+        while True:
+            q = self.positions(fresh=True)
+            if self.safety:
+                self.safety.reset(q)
+            try:
+                self.set_targets(q, move_ms)
+                return
+            except NackError as e:
+                st = self._state
+                booting = (
+                    e.nack.error == P.NackError.REJECTED_FAULTED
+                    and st is not None
+                    and st.fault_flags == 0
+                    and st.mode == P.Mode.IDLE
+                )
+                if not booting or time.monotonic() > deadline:
+                    raise
 
     def estop(self) -> None:
         """Latch the soft e-stop (torque off). Retries harder than normal commands."""

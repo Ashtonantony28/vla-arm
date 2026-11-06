@@ -1,0 +1,90 @@
+refs,qty,value,description,footprint,manufacturer,mpn,mpn_status
+C1 C7 C10 C19 C20 C21 C22 C24 C27 C30 C32 C33 C34 C36 C37 C42 C43 C44 C45,19,100n,Capacitor 0402 X7R,Capacitor_SMD:C_0402_1005Metric,,,generic
+C2 C11,2,100n,Capacitor 0603 X7R/X5R,Capacitor_SMD:C_0603_1608Metric,,,generic
+C3 C4 C39 C40,4,470u 25V,"Electrolytic 470 uF 25 V low-ESR, radial 10 mm",Capacitor_THT:CP_Radial_D10.0mm_P5.00mm,Panasonic,EEU-FR1E471,verify
+C5 C6 C8 C9 C41,5,10u 25V,Capacitor 1206 X7R 25 V,Capacitor_SMD:C_1206_3216Metric,,,generic
+C12 C13,2,22u 10V,Capacitor 1206 X7R 25 V,Capacitor_SMD:C_1206_3216Metric,,,generic
+C14,1,6.8n,Capacitor 0402 X7R,Capacitor_SMD:C_0402_1005Metric,,,generic
+C15,1,47p,Capacitor 0402 X7R,Capacitor_SMD:C_0402_1005Metric,,,generic
+C16,1,15n,Capacitor 0402 X7R,Capacitor_SMD:C_0402_1005Metric,,,generic
+C17,1,10u 10V,Capacitor 0603 X7R/X5R,Capacitor_SMD:C_0603_1608Metric,,,generic
+C18,1,22u 6.3V,Capacitor 0603 X7R/X5R,Capacitor_SMD:C_0603_1608Metric,,,generic
+C23,1,4.7u,Capacitor 0603 X7R/X5R,Capacitor_SMD:C_0603_1608Metric,,,generic
+C25,1,1u,Capacitor 0603 X7R/X5R,Capacitor_SMD:C_0603_1608Metric,,,generic
+C26,1,10n,Capacitor 0402 X7R,Capacitor_SMD:C_0402_1005Metric,,,generic
+C28 C29,2,10p C0G,Capacitor 0402 X7R,Capacitor_SMD:C_0402_1005Metric,,,generic
+C31,1,4.7n 100V,Capacitor 0603 X7R/X5R,Capacitor_SMD:C_0603_1608Metric,,,generic
+C35,1,47n 50V,Capacitor 0603 X7R/X5R,Capacitor_SMD:C_0603_1608Metric,,,generic
+C38,1,1n C0G,Capacitor 0402 X7R,Capacitor_SMD:C_0402_1005Metric,,,generic
+C46,1,4.7n,Capacitor 0402 X7R,Capacitor_SMD:C_0402_1005Metric,,,generic
+D1,1,SMCJ15A,TVS 15 V standoff unidirectional 1500 W,Diode_SMD:D_SMC,Littelfuse,SMCJ15A,confident
+D2,1,B340A-13-F,Schottky 40 V 3 A SMA (buck catch diode),Diode_SMD:D_SMA,Diodes Inc,B340A-13-F,confident
+D3,1,green PWR,LED 0603,LED_SMD:LED_0603_1608Metric,,,generic
+D4,1,status1,LED 0603,LED_SMD:LED_0603_1608Metric,,,generic
+D5,1,status2,LED 0603,LED_SMD:LED_0603_1608Metric,,,generic
+D6,1,PESD5V0S1BL,ESD/TVS 5 V unidirectional (servo data line),Diode_SMD:D_SOD-323,Nexperia,PESD5V0S1BL,verify
+D7,1,BZT52C15-7-F,Zener 15 V gate clamp,Diode_SMD:D_SOD-123,Diodes Inc,BZT52C15-7-F,verify
+D8,1,amber SERVO PWR,LED 0603,LED_SMD:LED_0603_1608Metric,,,generic
+D9,1,"PESD2CAN,215",CAN bus ESD protection,Package_TO_SOT_SMD:SOT-23,Nexperia,"PESD2CAN,215",verify
+F1,1,15A slow,"Fuse 15 A slow-blow, >= 32 V (or blade fuse in the PSU lead)",Fuse:Fuse_Littelfuse_NANO2-451_453,,,TBD
+FB1,1,BLM18PG221SN1D,Ferrite bead 220 Ohm @100 MHz,Inductor_SMD:L_0603_1608Metric,Murata,BLM18PG221SN1D,confident
+J1,1,12V IN,"12 V input, XT30 PCB male (rated 15 A+)",Connector_AMASS:AMASS_XT30PW-M_1x02_P2.50mm_Horizontal,Amass,XT30PW-M,verify
+J2,1,FTSH-105-01-F-DV-K,Cortex-M 10-pin SWD header 1.27 mm,Connector_PinHeader_1.27mm:PinHeader_2x05_P1.27mm_Vertical_SMD,Samtec,FTSH-105-01-F-DV-K,verify
+J3,1,CONN_UART,Debug UART header 3p,Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical,,,generic
+J4,1,USB4105-GF-A,"USB-C receptacle, USB 2.0 device",Connector_USB:USB_C_Receptacle_GCT_USB4105-xx-A_16P_TopMnt_Horizontal,GCT,USB4105-GF-A,verify
+J5,1,SERVO1,"Servo bus port, 3-pin (match the servo cable: pin order and housing MUST be checked against the STS3215 lead)",Connector_Molex:Molex_Micro-Latch_53254-0370_1x03_P2.00mm_Vertical,,,TBD
+J6,1,SERVO2,"Servo bus port, 3-pin (match the servo cable: pin order and housing MUST be checked against the STS3215 lead)",Connector_Molex:Molex_Micro-Latch_53254-0370_1x03_P2.00mm_Vertical,,,TBD
+J7,1,SERVO3,"Servo bus port, 3-pin (match the servo cable: pin order and housing MUST be checked against the STS3215 lead)",Connector_Molex:Molex_Micro-Latch_53254-0370_1x03_P2.00mm_Vertical,,,TBD
+J8,1,B2B-XH-A(LF)(SN),"E-stop loop (NC mushroom button), JST-XH 2p",Connector_JST:JST_XH_B2B-XH-A_1x02_P2.50mm_Vertical,JST,B2B-XH-A(LF)(SN),confident
+J9,1,SM03B-GHS-TB(LF)(SN),"CAN-FD port (v2), JST-GH 3p",Connector_JST:JST_GH_SM03B-GHS-TB_1x03-1MP_P1.25mm_Horizontal,JST,SM03B-GHS-TB(LF)(SN),verify
+JP1,1,CAN TERM,2-pin jumper header + shunt,Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical,,,generic
+L1,1,10u,"Inductor ~10 uH, Isat >= 4 A, DCR < 40 mOhm (TPS54331 5 V/3 A)",Inductor_SMD:L_Wuerth_HCI-5040,,,TBD
+L2,1,2.2u,"Inductor 2.2 uH, Isat >= 1.5 A",Inductor_SMD:L_0805_2012Metric,Murata,DFE201610E-2R2M,verify
+Q1,1,CSD17573Q5B,"N-MOSFET 30 V, < 3 mOhm, SON5x6 (ideal-diode pass FET)",Package_TO_SOT_SMD:TDSON-8-1,TI,CSD17573Q5B,verify
+Q2,1,AOD4185,"P-MOSFET -40 V, ~15 mOhm, Id >= 30 A, DPAK (servo power switch)",Package_TO_SOT_SMD:TO-252-2,Alpha & Omega,AOD4185,verify
+Q3 Q4,2,BSS138LT1G,N-MOSFET logic level 50 V 200 mA SOT-23,Package_TO_SOT_SMD:SOT-23,onsemi,BSS138LT1G,verify
+R1 R8 R26 R30 R34,5,100k,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R2 R35,2,15k,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R3,1,330k,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R4,1,68k,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R5,1,52.3k,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R6 R11 R17 R20 R21 R22 R23 R29 R36 R37,10,10k,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R7,1,7.5k,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R9,1,22.1k,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R10,1,1k,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R12 R13,2,330,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R14 R15,2,5.1k,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R16,1,1M,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R18,1,20k,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R19 R25 R33,3,100,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R24 R32,2,4.7k,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R27,1,2.2k,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R28,1,22k,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R31,1,33k,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R38 R39,2,60.4,Resistor 0603 1 %,Resistor_SMD:R_0603_1608Metric,,,generic
+R_SH,1,3m,"Current shunt 3 mOhm 1 % 2 W 2512, Kelvin pads",Resistor_SMD:R_2512_6332Metric,Vishay,WSL2512R0030FEA,verify
+SW1,1,RESET,Tactile switch SMD,Button_Switch_SMD:SW_SPST_PTS810,C&K,PTS810SJM250SMTRLFS,verify
+SW2,1,BOOT,Tactile switch SMD,Button_Switch_SMD:SW_SPST_PTS810,C&K,PTS810SJM250SMTRLFS,verify
+TH1,1,10k,NTC 10k B3380 0603,Resistor_SMD:R_0603_1608Metric,Murata,NCP18XH103F03RB,confident
+TP1,1,VIN_F,Test point pad,TestPoint:TestPoint_Pad_D1.5mm,,,generic
+TP2,1,V12,Test point pad,TestPoint:TestPoint_Pad_D1.5mm,,,generic
+TP3,1,V12_SERVO,Test point pad,TestPoint:TestPoint_Pad_D1.5mm,,,generic
+TP4,1,+5V,Test point pad,TestPoint:TestPoint_Pad_D1.5mm,,,generic
+TP5,1,+3V3,Test point pad,TestPoint:TestPoint_Pad_D1.5mm,,,generic
+TP6,1,+3V3A,Test point pad,TestPoint:TestPoint_Pad_D1.5mm,,,generic
+TP7 TP8,2,GND,Test point pad,TestPoint:TestPoint_Pad_D1.5mm,,,generic
+TP9,1,ISENSE_ADC,Test point pad,TestPoint:TestPoint_Pad_D1.5mm,,,generic
+TP10,1,SERVO_DATA,Test point pad,TestPoint:TestPoint_Pad_D1.5mm,,,generic
+TP11,1,ESTOP_RET,Test point pad,TestPoint:TestPoint_Pad_D1.5mm,,,generic
+TP12,1,GATE_SW,Test point pad,TestPoint:TestPoint_Pad_D1.5mm,,,generic
+TP13,1,SERVO_PWR_EN,Test point pad,TestPoint:TestPoint_Pad_D1.5mm,,,generic
+U1,1,LM74700QDBVRQ1,Ideal-diode controller (reverse-polarity protection),Package_TO_SOT_SMD:SOT-23-6,TI,LM74700QDBVRQ1,confident
+U2,1,TPS54331DR,"Buck 3.5-28 V in, 3 A (12 V -> 5 V)",Package_SO:SOIC-8_3.9x4.9mm_P1.27mm,TI,TPS54331DR,confident
+U3,1,TLV62569DBVR,"Sync buck 2.5-5.5 V in, 2 A (5 V -> 3.3 V)",Package_TO_SOT_SMD:SOT-23-5,TI,TLV62569DBVR,confident
+U4,1,STM32G474RET6,"MCU Cortex-M4F 170 MHz, 512 kB flash, FDCAN, USB-FS, LQFP-64",Package_QFP:LQFP-64_10x10mm_P0.5mm,ST,STM32G474RET6,confident
+U5,1,USBLC6-2SC6,"USB ESD protection, 2 lines + VBUS",Package_TO_SOT_SMD:SOT-23-6,ST,USBLC6-2SC6,confident
+U6,1,SN74AHCT1G126DBVR,"Single buffer, 3-state, OE active high, TTL inputs @5 V (bus TX)",Package_TO_SOT_SMD:SOT-23-5,TI,SN74AHCT1G126DBVR,confident
+U7,1,SN74LVC1G125DBVR,"Single buffer, 3-state, OE active low, 5 V-tolerant input @3.3 V (bus RX)",Package_TO_SOT_SMD:SOT-23-5,TI,SN74LVC1G125DBVR,confident
+U8,1,INA240A2PWR,"Current-sense amp, gain 50, -4..80 V CM, PWM rejection",Package_SO:TSSOP-8_4.4x3mm_P0.65mm,TI,INA240A2PWR,confident
+U9,1,TCAN1462VDRQ1,"CAN-FD transceiver with VIO (8 Mbps, SIC) - v2 joint modules",Package_SO:SOIC-8_3.9x4.9mm_P1.27mm,TI,TCAN1462VDRQ1,verify
+Y1,1,24MHz,"Crystal 24 MHz, CL 8-10 pF, +-20 ppm, 3225",Crystal:Crystal_SMD_3225-4Pin_3.2x2.5mm,Abracon,ABM8-24.000MHZ-B2-T,verify
