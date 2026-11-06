@@ -1,0 +1,66 @@
+# VLA Arm kinematics — single source of truth. Units: metres, radians.
+# Decision D1: 5 arm joints + gripper ("6-DOF" counting the gripper).
+#
+# Frames: world/base frame at the centre of the base plate, +z up, +x forward.
+# Zero pose (all joints 0): arm fully stretched horizontally along +x at shoulder height,
+# gripper jaws pointing along +x, wrist-roll 0 = jaws open/close along the world y axis.
+#
+# Each revolute joint rotates about `axis` (expressed in the parent link frame, which at
+# zero pose is aligned with the base frame). Right-hand rule: positive rotation about +y
+# moves +x toward -z, i.e. positive pitch = DOWN. Positive yaw about +z moves +x toward +y.
+# `origin` is the joint position relative to the previous joint (in the previous link frame).
+
+joints:
+  - name: base_yaw
+    axis: [0, 0, 1]
+    origin: [0.0, 0.0, 0.040]     # base plate to yaw bearing
+    limits: [-2.60, 2.60]
+    vmax: 3.0                     # rad/s
+  - name: shoulder_pitch
+    axis: [0, 1, 0]
+    origin: [0.0, 0.0, 0.060]     # yaw bearing to shoulder axis (shoulder height 0.100 m)
+    limits: [-1.80, 1.30]         # -pi/2 = upper arm straight up
+    vmax: 2.5
+  - name: elbow_pitch
+    axis: [0, 1, 0]
+    origin: [0.200, 0.0, 0.0]     # upper arm length
+    limits: [-2.70, 2.70]
+    vmax: 3.0
+  - name: wrist_pitch
+    axis: [0, 1, 0]
+    origin: [0.180, 0.0, 0.0]     # forearm length
+    limits: [-1.90, 1.90]
+    vmax: 3.5
+  - name: wrist_roll
+    axis: [1, 0, 0]
+    origin: [0.045, 0.0, 0.0]     # wrist pitch axis to roll servo
+    limits: [-3.00, 3.00]
+    vmax: 4.0
+
+tool:
+  # Tool centre point (between fingertips) relative to the wrist_roll joint frame.
+  tcp: [0.065, 0.0, 0.0]          # total wrist-pitch-axis to TCP = 0.110 m
+
+gripper:
+  name: gripper
+  # Gripper is commanded in the same mrad units as every other servo (servo shaft angle).
+  limits: [0.0, 1.60]             # 0 = closed, 1.60 rad = fully open
+  opening_m_at_max: 0.060         # jaw gap at 1.60 rad (linear approximation)
+  vmax: 4.0
+
+servo:
+  model_class: STS3215-class serial bus servo, 12 V
+  ticks_per_rev: 4096
+  center_tick: 2048               # joint zero after calibration offset is applied
+  stall_torque_nm: 2.9            # ~30 kg*cm at 12 V
+  max_continuous_current_a: 1.0
+  stall_current_a: 2.7
+
+masses_kg:                        # estimates for sim and torque budget (printed PETG + servo)
+  base_link: 0.350
+  shoulder_link: 0.110
+  upper_arm: 0.140
+  forearm: 0.120
+  wrist: 0.075
+  gripper: 0.110
+payload_kg: 0.250
