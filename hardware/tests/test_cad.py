@@ -85,8 +85,7 @@ def test_shoulder_sweep_clear_within_mechanical_range():
         assert A.collisions({"shoulder_pitch": q}, C.moving_set("shoulder_pitch"), adjacent_only=False) == [], q
 
 
-@pytest.mark.xfail(strict=True, reason="SPEC ISSUE: shoulder_pitch max +1.30 rad drives the upper arm into the "
-                   "turntable/base (shoulder axis only 100 mm above the plate); clear only to ~+0.80 rad")
+# spec v1.1 lowered shoulder max to +0.75 rad (was +1.30, which hit the base at ~+0.80)
 def test_shoulder_sweep_spec_limits_adjacent_clear():
     bad = [(q, h) for q, h in C.sweep("shoulder_pitch", n=13, adjacent_only=True) if h]
     assert not bad

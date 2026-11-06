@@ -5,7 +5,7 @@
 /* From spec/kinematics.yaml, converted to mrad and mrad/s. Joint order: base_yaw, shoulder_pitch,
  * elbow_pitch, wrist_pitch, wrist_roll, gripper. */
 static const int16_t k_lim_min[ARMFW_N_JOINTS] = {-2600, -1800, -2700, -1900, -3000, 0};
-static const int16_t k_lim_max[ARMFW_N_JOINTS] = {2600, 1300, 2700, 1900, 3000, 1600};
+static const int16_t k_lim_max[ARMFW_N_JOINTS] = {2600, 750, 2300, 1900, 3000, 1600};
 static const int16_t k_vmax[ARMFW_N_JOINTS] = {3000, 2500, 3000, 3500, 4000, 4000};
 
 void config_defaults(armfw_config_t *c) {

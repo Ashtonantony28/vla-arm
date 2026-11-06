@@ -126,7 +126,8 @@ def test_ik_xyz_pitch_roll_targets():
 
 
 def test_ik_both_elbow_branches_distinct():
-    res = K.solve_ik_xyz([0.25, 0.0, 0.10], 0.3)
+    # spec v1.1 (shoulder max 0.75, elbow max 2.30) removed the old close-in target [0.25, 0, 0.10]
+    res = K.solve_ik_xyz([0.30, 0.0, 0.15], 0.3)
     names = {s.branch for s in res.solutions}
     assert {"front/elbow_up", "front/elbow_down"} <= names
     up = next(s for s in res.solutions if s.branch == "front/elbow_up")

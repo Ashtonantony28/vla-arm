@@ -93,3 +93,23 @@ latched bit **and** then a SET_TARGETS with torque enable.
   one SYNC_WRITE and reads back one servo in round-robin (each joint refreshed at ~166 Hz), so the
   bus load per cycle stays under 1 ms.
 - Watchdog: any valid host frame resets it.
+
+## v1.1 clarifications (2026-11-06)
+
+Settled after the C firmware and the Python driver were written independently and cross-tested
+(`tests/integration/test_armctl_vs_firmware.py`). Wire format is unchanged; VER stays `0x01`.
+Full reasoning: `armctl/README.md` and `firmware/README.md`.
+
+1. **Wrong payload length for a known TYPE** is answered with NACK 1 (not silently dropped). Frames with bad CRC, bad VER or LEN > 240 are still dropped.
+2. **Watchdog** runs only while torque is on. Any valid host frame feeds it, including one that is NACKed. Any valid frame ends HOLD; the arm keeps the frozen setpoint until a new SET_TARGETS.
+3. **Leaving FAULT:** after CLEAR_FAULT clears every latched bit, mode stays FAULT with `fault_flags == 0` until a SET_TARGETS: torque on → ACTIVE, torque off → IDLE. CLEAR_FAULT is always ACKed; bits whose condition persists (e.g. hardware e-stop loop still open) stay set.
+4. **Torque off is never refused.** A torque-off SET_TARGETS with an invalid field is NACKed but torque still goes off.
+5. **NACK 4 (rejected)** is also used for: torque-enable before every servo has been read once after boot (~6 ms), and calibration CONFIG keys (offset, direction) while torque is on. Hosts retry torque-enable only in the boot case (`fault_flags == 0`, mode IDLE).
+6. **BUS_UNDERVOLT** is a live, non-latching flag with no mode effect.
+7. **Calibration formula:** `q_rad = direction * (ticks - 2048 - offset_ticks) * 2π / 4096`.
+8. **`cmd_pos_crc`** covers the current trajectory setpoint (not the final target).
+9. **Trajectory:** all joints share one stretched duration. If vmax cannot be met by stretching from a high-acceleration state, the board inserts a constant-jerk blend of ≤ 20 ms that brings acceleration to zero first (still C2-continuous). If a move would overshoot a limit, the setpoint saturates at the limit and LIMIT_CLAMP is set.
+10. **`joint_status`** bits are defined in `firmware/core/include/armfw/control.h`; hosts may ignore them.
+11. **Bring-up over a plain UART** needs ≥ 230 400 baud for the default 200 Hz STATE stream; the board uses 1 Mbaud.
+
+Known open items for protocol v2: PONG carries no sequence number (add `u8 ping_seq`); `t_us` wraps every 71.6 min (move to u64 or add an epoch counter).

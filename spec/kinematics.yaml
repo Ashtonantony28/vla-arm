@@ -19,12 +19,13 @@ joints:
   - name: shoulder_pitch
     axis: [0, 1, 0]
     origin: [0.0, 0.0, 0.060]     # yaw bearing to shoulder axis (shoulder height 0.100 m)
-    limits: [-1.80, 1.30]         # -pi/2 = upper arm straight up
+    limits: [-1.80, 0.75]         # -pi/2 = upper arm straight up. v1.1: max was 1.30; CAD shows the
+                                  # upper arm hits the base at +0.80 (hardware/cad/out/cad_report.md)
     vmax: 2.5
   - name: elbow_pitch
     axis: [0, 1, 0]
     origin: [0.200, 0.0, 0.0]     # upper arm length
-    limits: [-2.70, 2.70]
+    limits: [-2.70, 2.30]         # v1.1: max was 2.70; wrist meets base beyond ~+2.36 with shoulder level
     vmax: 3.0
   - name: wrist_pitch
     axis: [0, 1, 0]
@@ -47,6 +48,7 @@ gripper:
   limits: [0.0, 1.60]             # 0 = closed, 1.60 rad = fully open
   opening_m_at_max: 0.060         # jaw gap at 1.60 rad (linear approximation)
   vmax: 4.0
+  current_limit_ma: 1000          # v1.1: hold the gripper at the continuous rating, not stall
 
 servo:
   model_class: STS3215-class serial bus servo, 12 V
@@ -63,4 +65,5 @@ masses_kg:                        # estimates for sim and torque budget (printed
   forearm: 0.120
   wrist: 0.075
   gripper: 0.110
-payload_kg: 0.250
+payload_kg: 0.200                 # v1.1: was 0.250; 0.20 kg is the continuous limit at full reach (elbow),
+                                  # and the shoulder needs the counterbalance spring (hardware/analysis/budget_report.md)

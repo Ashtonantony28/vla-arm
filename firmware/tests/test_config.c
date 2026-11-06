@@ -9,7 +9,7 @@ TT_TEST(defaults_match_kinematics_yaml) {
     armfw_config_t c;
     config_defaults(&c);
     static const int lo[6] = {-2600, -1800, -2700, -1900, -3000, 0};
-    static const int hi[6] = {2600, 1300, 2700, 1900, 3000, 1600};
+    static const int hi[6] = {2600, 750, 2300, 1900, 3000, 1600};
     static const int vm[6] = {3000, 2500, 3000, 3500, 4000, 4000};
     for (int j = 0; j < 6; j++) {
         TT_EQ(c.joint[j].limit_min_mrad, lo[j]);

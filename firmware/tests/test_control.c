@@ -437,7 +437,7 @@ TT_TEST(set_stream_rates) {
 
 TT_TEST(limit_clamp_flag_and_self_clear) {
     host_t *h = boot_active();
-    static const int16_t out_of_range[6] = {0, 2000, 0, 0, 0, 800}; /* shoulder max 1300 */
+    static const int16_t out_of_range[6] = {0, 2000, 0, 0, 0, 800}; /* shoulder max 750 */
     hh_set_targets(h, 1000, out_of_range, PROTO_FLAG_TORQUE);
     hh_run(h, 10);
     proto_state_t st;
@@ -447,7 +447,7 @@ TT_TEST(limit_clamp_flag_and_self_clear) {
     TT_ASSERT(st.joint[1].status & JS_TARGET_CLAMPED);
     TT_ASSERT(!(st.joint[0].status & JS_TARGET_CLAMPED));
     run_fed(h, 1500);
-    TT_NEAR(g_sim.ctl.meas[1].pos_mrad, 1300, 2);
+    TT_NEAR(g_sim.ctl.meas[1].pos_mrad, 750, 2);
     /* a too-fast move is stretched, also flagged */
     static const int16_t fast[6] = {2000, 0, 0, 0, 0, 800};
     hh_set_targets(h, 10, fast, PROTO_FLAG_TORQUE);
@@ -468,7 +468,7 @@ TT_TEST(measured_velocity_never_exceeds_vmax) {
     host_t *h = boot_active();
     run_fed(h, 300);
     static const int16_t a[6] = {2500, 1200, -2600, 1800, -2900, 1600};
-    static const int16_t b[6] = {-2500, -1700, 2600, -1800, 2900, 0};
+    static const int16_t b[6] = {-2500, -1700, 2200, -1800, 2900, 0};
     double vmax_ratio = 0;
     armfw_config_t cfg;
     config_defaults(&cfg);
