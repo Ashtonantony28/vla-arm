@@ -84,7 +84,7 @@ TT_TEST(config_apply_validation) {
     TT_EQ(config_apply(&c, 0xFF, 0x12, 1, false), PROTO_ERR_UNKNOWN_KEY);
     /* watchdog: hold < off */
     TT_EQ(config_apply(&c, 0xFF, PROTO_CFG_WD_HOLD_MS, 500, true), PROTO_ERR_BAD_VALUE);
-    TT_EQ(config_apply(&c, 0xFF, PROTO_CFG_WD_HOLD_MS, 9, true), PROTO_ERR_BAD_VALUE);
+    TT_EQ(config_apply(&c, 0xFF, PROTO_CFG_WD_HOLD_MS, 0, true), PROTO_ERR_BAD_VALUE);
     TT_EQ(config_apply(&c, 0xFF, PROTO_CFG_WD_HOLD_MS, 50, true), 0);
     TT_EQ(config_apply(&c, 0xFF, PROTO_CFG_WD_OFF_MS, 50, true), PROTO_ERR_BAD_VALUE);
     TT_EQ(config_apply(&c, 0xFF, PROTO_CFG_WD_OFF_MS, 60001, true), PROTO_ERR_BAD_VALUE);

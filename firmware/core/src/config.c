@@ -31,7 +31,7 @@ int config_apply(armfw_config_t *c, uint8_t joint, uint8_t key, int32_t value, b
     if (global_key) {
         if (joint != PROTO_CFG_JOINT_GLOBAL) return PROTO_ERR_BAD_VALUE;
         if (key == PROTO_CFG_WD_HOLD_MS) {
-            if (value < 10 || value >= (int32_t)c->wd_off_ms) return PROTO_ERR_BAD_VALUE;
+            if (value < 1 || value >= (int32_t)c->wd_off_ms) return PROTO_ERR_BAD_VALUE;
             c->wd_hold_ms = (uint16_t)value;
         } else {
             if (value <= (int32_t)c->wd_hold_ms || value > 60000) return PROTO_ERR_BAD_VALUE;

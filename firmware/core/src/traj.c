@@ -1,7 +1,6 @@
 #include "armfw/traj.h"
 
-#define RANGE_SAMPLES 32
-#define BISECT_ITERS 24
+#define ROOT_ITERS 8 /* safeguarded regula falsi (Illinois) iterations per bracketed root */
 
 static float poly_eval(const float *c, int deg, float s) {
     float r = c[deg];
@@ -13,39 +12,110 @@ static void poly_deriv(const float *c, int deg, float *dc) {
     for (int k = 1; k <= deg; k++) dc[k - 1] = (float)k * c[k];
 }
 
-/* Min/max of polynomial c (degree deg) over s in [0,1]. dc is its derivative (degree deg-1).
- * Extrema are at the endpoints or at sign changes of dc, which are located by sampling and
- * bisection. Every sample point is also included in the range. */
-static void poly_range01(const float *c, int deg, const float *dc, float *mn, float *mx) {
-    float lo = poly_eval(c, deg, 0.0f), hi = lo;
-    float s_prev = 0.0f, g_prev = poly_eval(dc, deg - 1, 0.0f);
-    for (int i = 1; i <= RANGE_SAMPLES; i++) {
-        float s = (float)i / (float)RANGE_SAMPLES;
-        float f = poly_eval(c, deg, s);
-        lo = armfw_fminf(lo, f);
-        hi = armfw_fmaxf(hi, f);
-        float g = poly_eval(dc, deg - 1, s);
-        if ((g_prev < 0.0f && g > 0.0f) || (g_prev > 0.0f && g < 0.0f)) {
-            float a = s_prev, b = s, ga = g_prev;
-            for (int it = 0; it < BISECT_ITERS; it++) {
-                float m = 0.5f * (a + b);
-                float gm = poly_eval(dc, deg - 1, m);
-                if ((gm < 0.0f) == (ga < 0.0f)) {
-                    a = m;
-                    ga = gm;
-                } else {
-                    b = m;
-                }
-            }
-            float fr = poly_eval(c, deg, 0.5f * (a + b));
-            lo = armfw_fminf(lo, fr);
-            hi = armfw_fmaxf(hi, fr);
-        }
-        s_prev = s;
-        g_prev = g;
+/* Sorted points in the open interval (0, 1). */
+typedef struct {
+    float s[4];
+    int n;
+} pts01_t;
+
+static void pts_add(pts01_t *p, float s) {
+    if (!(s > 0.0f && s < 1.0f) || p->n >= 4) return;
+    int i = p->n++;
+    while (i > 0 && p->s[i - 1] > s) {
+        p->s[i] = p->s[i - 1];
+        i--;
     }
-    *mn = lo;
-    *mx = hi;
+    p->s[i] = s;
+}
+
+/* Roots in (0,1) of c0 + c1 s + c2 s^2, cancellation-free form. The square root is a single VSQRT
+ * on the M4F (the core is built with -fno-math-errno, so no libm call). */
+static void quad_roots01(const float *c, pts01_t *out) {
+    out->n = 0;
+    float a = c[2], b = c[1], k = c[0];
+    float scale = armfw_fmaxf(armfw_fmaxf(armfw_fabsf(a), armfw_fabsf(b)), armfw_fabsf(k));
+    if (scale == 0.0f) return;
+    if (armfw_fabsf(a) <= 1e-7f * scale) {
+        if (b != 0.0f) pts_add(out, -k / b);
+        return;
+    }
+    float disc = b * b - 4.0f * a * k;
+    if (disc < 0.0f) return;
+    float sq = __builtin_sqrtf(disc);
+    float q = -0.5f * (b + (b >= 0.0f ? sq : -sq));
+    if (q != 0.0f) {
+        pts_add(out, q / a);
+        pts_add(out, k / q);
+    }
+}
+
+/* Roots in (0,1) of polynomial c (degree deg), given the sorted critical points of c in (0,1):
+ * c is monotone between consecutive knots, so each interval holds at most one root, found by
+ * the Illinois variant of regula falsi with a bisection safeguard. */
+static void monotone_roots01(const float *c, int deg, const pts01_t *crit, pts01_t *out) {
+    out->n = 0;
+    float a = 0.0f, fa = poly_eval(c, deg, 0.0f);
+    for (int i = 0; i <= crit->n; i++) {
+        float b = i < crit->n ? crit->s[i] : 1.0f;
+        float fb = poly_eval(c, deg, b);
+        if (fb == 0.0f) {
+            pts_add(out, b);
+        } else if ((fa < 0.0f && fb > 0.0f) || (fa > 0.0f && fb < 0.0f)) {
+            float lo = a, hi = b, flo = fa, fhi = fb, x = 0.5f * (a + b);
+            int side = 0;
+            for (int it = 0; it < ROOT_ITERS; it++) {
+                x = (lo * fhi - hi * flo) / (fhi - flo);
+                if (!(x > lo && x < hi)) x = 0.5f * (lo + hi);
+                float fx = poly_eval(c, deg, x);
+                if (fx == 0.0f) break;
+                if ((fx < 0.0f) == (flo < 0.0f)) {
+                    lo = x;
+                    flo = fx;
+                    if (side == -1) fhi *= 0.5f;
+                    side = -1;
+                } else {
+                    hi = x;
+                    fhi = fx;
+                    if (side == 1) flo *= 0.5f;
+                    side = 1;
+                }
+                if (hi - lo < 1e-4f) break; /* extremum value error ~ (1e-4)^2 */
+            }
+            pts_add(out, x);
+        }
+        a = b;
+        fa = fb;
+    }
+}
+
+/* Extrema of a quintic in normalised time. Velocity extrema sit at roots of the cubic P2 = P'',
+ * whose critical points are the roots of the quadratic P3 = P''' (closed form). Position extrema
+ * sit at roots of the quartic P1 = P', which is monotone between roots of P2. No sampling. */
+static void quintic_extrema(const quintic_t *q, float *vpeak, float *pmin, float *pmax) {
+    float d1[5], d2[4], d3[3];
+    poly_deriv(q->b, 5, d1);
+    poly_deriv(d1, 4, d2);
+    poly_deriv(d2, 3, d3);
+    pts01_t r3, r2;
+    quad_roots01(d3, &r3);
+    monotone_roots01(d2, 3, &r3, &r2);
+    if (vpeak) {
+        float m = armfw_fmaxf(armfw_fabsf(d1[0]), armfw_fabsf(poly_eval(d1, 4, 1.0f)));
+        for (int i = 0; i < r2.n; i++) m = armfw_fmaxf(m, armfw_fabsf(poly_eval(d1, 4, r2.s[i])));
+        *vpeak = m / q->T;
+    }
+    if (pmin && pmax) {
+        pts01_t r1;
+        monotone_roots01(d1, 4, &r2, &r1);
+        float lo = armfw_fminf(q->b[0], q->pf), hi = armfw_fmaxf(q->b[0], q->pf);
+        for (int i = 0; i < r1.n; i++) {
+            float v = poly_eval(q->b, 5, r1.s[i]);
+            lo = armfw_fminf(lo, v);
+            hi = armfw_fmaxf(hi, v);
+        }
+        *pmin = lo;
+        *pmax = hi;
+    }
 }
 
 void quintic_plan(quintic_t *q, float p0, float v0, float a0, float pf, float T) {
@@ -84,20 +154,12 @@ void quintic_eval(const quintic_t *q, float t, traj_state_t *out) {
 }
 
 float quintic_peak_vel(const quintic_t *q) {
-    float d1[5], d2[4], mn, mx;
-    poly_deriv(q->b, 5, d1);
-    poly_deriv(d1, 4, d2);
-    poly_range01(d1, 4, d2, &mn, &mx);
-    return armfw_fmaxf(armfw_fabsf(mn), armfw_fabsf(mx)) / q->T;
+    float v;
+    quintic_extrema(q, &v, NULL, NULL);
+    return v;
 }
 
-void quintic_pos_range(const quintic_t *q, float *pmin, float *pmax) {
-    float d1[5];
-    poly_deriv(q->b, 5, d1);
-    poly_range01(q->b, 5, d1, pmin, pmax);
-    *pmin = armfw_fminf(*pmin, q->pf);
-    *pmax = armfw_fmaxf(*pmax, q->pf);
-}
+void quintic_pos_range(const quintic_t *q, float *pmin, float *pmax) { quintic_extrema(q, NULL, pmin, pmax); }
 
 static void blend_eval(const traj_blend_t *b, float t, traj_state_t *out) {
     out->p = b->p0 + t * (b->v0 + t * (0.5f * b->a0 + t * (b->jerk * (1.0f / 6.0f))));

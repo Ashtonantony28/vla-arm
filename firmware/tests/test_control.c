@@ -229,9 +229,11 @@ TT_TEST(two_step_fault_clear_via_frames) {
     s = hh_clear(h, FAULT_WATCHDOG);
     hh_run(h, 1);
     TT_EQ(hh_reply(h, s, PROTO_T_CLEAR_FAULT), 1);
-    TT_EQ(g_sim.ctl.safety.mode, MODE_IDLE);
-    hh_run(h, 700); /* idle: watchdog disarmed */
-    TT_EQ(g_sim.ctl.safety.mode, MODE_IDLE);
+    TT_EQ(g_sim.ctl.safety.mode, MODE_FAULT); /* no bits left, but FAULT until SET_TARGETS */
+    TT_EQ(g_sim.ctl.safety.faults, 0);
+    hh_run(h, 700); /* torque off: watchdog disarmed */
+    TT_EQ(g_sim.ctl.safety.mode, MODE_FAULT);
+    TT_EQ(g_sim.ctl.safety.faults, 0);
     for (int j = 0; j < 6; j++) TT_ASSERT(!g_sim.servo[j].torque);
     s = hh_set_targets(h, 100, k_home, PROTO_FLAG_TORQUE);
     hh_run(h, 2);
@@ -251,6 +253,11 @@ TT_TEST(soft_estop) {
     s = hh_clear(h, FAULT_ESTOP_SOFT);
     hh_run(h, 1);
     TT_EQ(hh_reply(h, s, PROTO_T_CLEAR_FAULT), 1);
+    TT_EQ(g_sim.ctl.safety.mode, MODE_FAULT);
+    TT_EQ(g_sim.ctl.safety.faults, 0);
+    s = hh_set_targets(h, 100, k_home, 0); /* torque-off SET_TARGETS: FAULT -> IDLE */
+    hh_run(h, 1);
+    TT_EQ(hh_reply(h, s, PROTO_T_SET_TARGETS), 1);
     TT_EQ(g_sim.ctl.safety.mode, MODE_IDLE);
 }
 
@@ -265,7 +272,7 @@ TT_TEST(hardware_estop_loop) {
     TT_ASSERT(f & FAULT_SERVO_COMMS);
     uint8_t s = hh_clear(h, FAULT_DEFINED_MASK);
     hh_run(h, 1);
-    TT_EQ(hh_reply(h, s, PROTO_T_CLEAR_FAULT), -PROTO_ERR_FAULTED);
+    TT_EQ(hh_reply(h, s, PROTO_T_CLEAR_FAULT), 1); /* ACKed, but the open loop keeps the bit */
     TT_ASSERT(g_sim.ctl.safety.faults & FAULT_ESTOP_HW);
     g_sim.estop_closed = true;
     run_fed(h, 100); /* power back: voltage recovers, servos answer again */
@@ -273,8 +280,11 @@ TT_TEST(hardware_estop_loop) {
     s = hh_clear(h, FAULT_DEFINED_MASK);
     hh_run(h, 1);
     TT_EQ(hh_reply(h, s, PROTO_T_CLEAR_FAULT), 1);
-    TT_EQ(g_sim.ctl.safety.mode, MODE_IDLE);
     TT_EQ(g_sim.ctl.safety.faults, 0);
+    s = hh_set_targets(h, 100, k_home, PROTO_FLAG_TORQUE); /* step 2 */
+    hh_run(h, 1);
+    TT_EQ(hh_reply(h, s, PROTO_T_SET_TARGETS), 1);
+    TT_EQ(g_sim.ctl.safety.mode, MODE_ACTIVE);
 }
 
 TT_TEST(servo_comms_fault_three_missed_polls) {
@@ -330,24 +340,26 @@ TT_TEST(overtemp_fault) {
     TT_EQ(g_sim.ctl.safety.mode, MODE_FAULT);
     uint8_t s = hh_clear(h, FAULT_OVERTEMP);
     hh_run(h, 1);
-    TT_EQ(hh_reply(h, s, PROTO_T_CLEAR_FAULT), -PROTO_ERR_FAULTED);
+    TT_EQ(hh_reply(h, s, PROTO_T_CLEAR_FAULT), 1);
+    TT_EQ(g_sim.ctl.safety.faults, FAULT_OVERTEMP); /* still hot: stays set */
     g_sim.servo[4].temp_c = 60.0f;
     hh_run(h, 10);
     s = hh_clear(h, FAULT_OVERTEMP);
     hh_run(h, 1);
     TT_EQ(hh_reply(h, s, PROTO_T_CLEAR_FAULT), 1);
+    TT_EQ(g_sim.ctl.safety.faults, 0);
 }
 
-TT_TEST(undervolt_self_clears_to_idle) {
+TT_TEST(undervolt_is_live_flag_only) {
     host_t *h = boot_active();
     g_sim.supply_v = 10.2f;
     run_fed(h, 10);
-    TT_EQ(g_sim.ctl.safety.mode, MODE_FAULT);
+    TT_EQ(g_sim.ctl.safety.mode, MODE_ACTIVE); /* not latched: no mode change */
     TT_EQ(g_sim.ctl.safety.faults, FAULT_BUS_UNDERVOLT);
     g_sim.supply_v = 12.0f;
     run_fed(h, 60);
     TT_EQ(g_sim.ctl.safety.faults, 0);
-    TT_EQ(g_sim.ctl.safety.mode, MODE_IDLE); /* torque stays off until re-enabled */
+    TT_EQ(g_sim.ctl.safety.mode, MODE_ACTIVE);
 }
 
 TT_TEST(nack_codes) {
@@ -380,11 +392,11 @@ TT_TEST(nack_codes) {
     TT_EQ(hh_reply(h, s9, PROTO_T_SET_TARGETS), -PROTO_ERR_BAD_VALUE);
     TT_EQ(hh_reply(h, s10, PROTO_T_SET_TARGETS), -PROTO_ERR_BAD_VALUE);
     TT_EQ(hh_reply(h, s11, PROTO_T_SET_STREAM), -PROTO_ERR_BAD_VALUE);
-    TT_EQ(hh_reply(h, s12, PROTO_T_CLEAR_FAULT), -PROTO_ERR_BAD_VALUE);
+    TT_EQ(hh_reply(h, s12, PROTO_T_CLEAR_FAULT), 1); /* undefined bits ignored */
     TT_EQ(hh_reply(h, s13, PROTO_T_CONFIG), -PROTO_ERR_BAD_VALUE);
     TT_EQ(hh_reply(h, s14, PROTO_T_PING), -PROTO_ERR_BAD_LEN);
     TT_EQ(g_sim.ctl.safety.mode, MODE_IDLE);
-    TT_EQ(g_sim.ctl.stats.nacks, 14);
+    TT_EQ(g_sim.ctl.stats.nacks, 13);
 }
 
 TT_TEST(corrupt_frames_get_no_reply_and_dont_feed_watchdog) {
@@ -569,7 +581,13 @@ TT_TEST(torque_off_is_never_refused) {
     for (int j = 0; j < 6; j++) TT_ASSERT(!g_sim.servo[j].torque);
     hh_set_targets(h, 100, k_home, PROTO_FLAG_TORQUE);
     hh_run(h, 1);
-    s = hh_set_targets(h, 0, k_home, 0);
+    s = hh_set_targets(h, 0, k_home, 0); /* bad move_ms alone: NACK 2, torque still off */
+    hh_run(h, 1);
+    TT_EQ(hh_reply(h, s, PROTO_T_SET_TARGETS), -PROTO_ERR_BAD_VALUE);
+    TT_EQ(g_sim.ctl.safety.mode, MODE_IDLE);
+    hh_set_targets(h, 100, k_home, PROTO_FLAG_TORQUE);
+    hh_run(h, 1);
+    s = hh_set_targets(h, 100, k_home, 0);
     hh_run(h, 1);
     TT_EQ(hh_reply(h, s, PROTO_T_SET_TARGETS), 1);
     TT_EQ(g_sim.ctl.safety.mode, MODE_IDLE);

@@ -111,7 +111,7 @@ int main(void) {
     report("idle step (torque off, STATE every 5th)", sum, n, mx);
 
     /* 2. 30 Hz policy: small target updates, steps between and replan steps separately */
-    uint32_t rs = 0, rmx = 0, rn = 0;
+    uint32_t rs = 0, rmx = 0, rn = 0, pev = 0;
     sum = mx = n = 0;
     int16_t pos[6] = {0, 0, 0, 0, 0, 800};
     for (int k = 0; k < 3000; k++) {
@@ -122,12 +122,16 @@ int main(void) {
             send_targets(pos, 66);
         }
         uint32_t c = step_ins();
-        if (rp) { rs += c; rn++; if (c > rmx) rmx = c; }
+        if (rp) { rs += c; rn++; if (c > rmx) rmx = c; pev += g_sim.ctl.last_plan.evals; }
         else { sum += c; n++; if (c > mx) mx = c; }
     }
     report("active step, no new frame", sum, n, mx);
+    sh_write0("policy plan evaluations total ");
+    put_u(pev);
+    sh_write0("\n");
     report("active step with SET_TARGETS replan (30 Hz policy)", rs, rn, rmx);
 
+    uint32_t ev = 0, evmx = 0;
     /* 3. adversarial: large random targets, short move_ms, replanned every 5..60 ms mid-motion */
     rs = rmx = rn = 0;
     for (int k = 0, next = 0; k < 20000; k++) {
@@ -144,8 +148,13 @@ int main(void) {
             sim_host_send(&g_sim, fr, proto_encode(fr, sizeof fr, PROTO_T_PING, ps++, NULL, 0));
         }
         uint32_t c = step_ins();
-        if (rp) { rs += c; rn++; if (c > rmx) rmx = c; }
+        if (rp) { rs += c; rn++; if (c > rmx) rmx = c; ev += g_sim.ctl.last_plan.evals; if (g_sim.ctl.last_plan.evals > evmx) evmx = g_sim.ctl.last_plan.evals; }
     }
+    sh_write0("adversarial plan evaluations: total ");
+    put_u(ev);
+    sh_write0(", max per replan ");
+    put_u(evmx);
+    sh_write0("\n");
     report("adversarial replans (full-range, mid-motion)", rs, rn, rmx);
     sh_write0("mode at end: ");
     put_u((uint32_t)g_sim.ctl.safety.mode);

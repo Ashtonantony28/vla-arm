@@ -1,12 +1,13 @@
 /* Safety: mode state machine (IDLE / ACTIVE / HOLD / FAULT), fault flags, watchdog tiers.
  *
  * Latched faults (ESTOP_SOFT, ESTOP_HW, WATCHDOG, OVERCURRENT, OVERTEMP, SERVO_COMMS) put the
- * board in FAULT with torque off. BUS_UNDERVOLT is live (not latched): while present it forces
- * FAULT and torque off, and it self-clears with hysteresis. LIMIT_CLAMP is informational only.
+ * board in FAULT with torque off. BUS_UNDERVOLT is live (not latched) and informational: it is
+ * set/cleared with the bus voltage (with hysteresis) and does not change the mode. LIMIT_CLAMP is
+ * informational only.
  *
  * Leaving FAULT is two steps: CLEAR_FAULT for every latched bit (a bit whose condition is still
- * present cannot be cleared), which moves FAULT -> IDLE once nothing torque-inhibiting remains,
- * and then SET_TARGETS with torque enable, IDLE -> ACTIVE.
+ * present stays set), after which the mode byte stays FAULT with no latched bits, and then
+ * SET_TARGETS with torque enable, FAULT -> ACTIVE (torque off instead: FAULT -> IDLE).
  *
  * Watchdog (armed only while torque is on, i.e. ACTIVE or HOLD): host silent > wd_hold_ms:
  * ACTIVE -> HOLD. Host silent > wd_off_ms: latch WATCHDOG -> FAULT. Any valid host frame resets
@@ -29,7 +30,7 @@ typedef enum {
 #define FAULT_LATCHED_MASK                                                                   \
     (FAULT_ESTOP_SOFT | FAULT_ESTOP_HW | FAULT_WATCHDOG | FAULT_OVERCURRENT | FAULT_OVERTEMP | \
      FAULT_SERVO_COMMS)
-#define FAULT_TORQUE_OFF_MASK (FAULT_LATCHED_MASK | FAULT_BUS_UNDERVOLT)
+#define FAULT_TORQUE_OFF_MASK FAULT_LATCHED_MASK
 
 /* Thresholds (spec values where the spec gives one, otherwise documented choices). */
 #define SAFETY_OVERTEMP_C 70             /* spec: > 70 C */
@@ -71,14 +72,15 @@ typedef struct {
 void safety_init(safety_t *s, uint32_t now_us);
 /* Any valid host frame: reset watchdog; HOLD -> ACTIVE. */
 void safety_host_frame(safety_t *s, uint32_t now_us);
-/* SET_TARGETS torque flag. Returns 0, or PROTO_ERR_FAULTED when torque-on is refused in FAULT. */
+/* SET_TARGETS torque flag. Returns 0, or PROTO_ERR_FAULTED when torque-on is refused because
+ * latched faults remain. */
 int safety_request_torque(safety_t *s, bool on, uint32_t now_us);
 /* ESTOP message: latch ESTOP_SOFT -> FAULT. */
 void safety_estop_soft(safety_t *s);
-/* CLEAR_FAULT. Clears every requested bit whose condition is gone. Returns 0 if all requested bits
- * are now clear, PROTO_ERR_BAD_VALUE for undefined bits (nothing cleared), or PROTO_ERR_FAULTED if
- * some requested bit could not be cleared because its condition persists. */
-int safety_clear(safety_t *s, uint16_t mask);
+/* CLEAR_FAULT (always ACKed). Clears every requested bit whose condition is gone; bits whose
+ * condition persists (loop still open, still hot, ...) and BUS_UNDERVOLT stay set; undefined bits
+ * 8-15 are ignored. */
+void safety_clear(safety_t *s, uint16_t mask);
 /* Set / clear the informational LIMIT_CLAMP flag. */
 void safety_set_limit_clamp(safety_t *s, bool on);
 /* Evaluate inputs once per control cycle (1 ms). */

@@ -12,7 +12,7 @@ endif()
 set(FW_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 
 set(MCU_FLAGS -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard)
-set(WARN -Wall -Wextra -Werror -Wdouble-promotion -Wshadow)
+set(WARN -Wall -Wextra -Werror -Wdouble-promotion -Wshadow -fno-math-errno)
 
 # Portable core: strict ISO C11, same as the host build.
 add_library(armfw_core_m4 STATIC

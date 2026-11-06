@@ -15,7 +15,7 @@ endif()
 option(ARMFW_SANITIZE "Build everything with -fsanitize=address,undefined" OFF)
 
 set(ARMFW_STRICT -Wall -Wextra -Werror -pedantic -Wshadow -Wdouble-promotion -Wconversion
-    -Wno-sign-conversion)
+    -Wno-sign-conversion -fno-math-errno)
 if(ARMFW_SANITIZE)
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all)
   add_link_options(-fsanitize=address,undefined)

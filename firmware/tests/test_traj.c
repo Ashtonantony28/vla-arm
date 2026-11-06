@@ -322,4 +322,26 @@ TT_TEST(blend_used_when_single_quintic_infeasible) {
     TT_EQ(g.cmd[0].p, 2600);
 }
 
+TT_TEST(position_range_matches_dense_sampling) {
+    tt_rng_t r = {11};
+    for (int it = 0; it < 300; it++) {
+        quintic_t q;
+        quintic_plan(&q, (float)tt_randf(&r, -2000, 2000), (float)tt_randf(&r, -3000, 3000),
+                     (float)tt_randf(&r, -50000, 50000), (float)tt_randf(&r, -2000, 2000),
+                     (float)tt_randf(&r, 0.01, 3.0));
+        double lo = 1e9, hi = -1e9;
+        for (int i = 0; i <= 20000; i++) {
+            traj_state_t st;
+            quintic_eval(&q, q.T * (float)i / 20000.0f, &st);
+            if (st.p < lo) lo = st.p;
+            if (st.p > hi) hi = st.p;
+        }
+        float mn, mx;
+        quintic_pos_range(&q, &mn, &mx);
+        double tol = 1e-4 * (fabs(lo) + fabs(hi)) + 0.05;
+        TT_NEAR(mn, lo, tol);
+        TT_NEAR(mx, hi, tol);
+    }
+}
+
 TT_MAIN()

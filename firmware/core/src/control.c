@@ -77,12 +77,14 @@ static int handle_set_targets(control_t *c, const proto_frame_t *f) {
         /* Torque-off is always executed, whatever the other fields hold (targets and move_ms are
          * ignored); reserved flag bits still earn a NACK so host bugs are visible. */
         safety_request_torque(&c->safety, false, now);
-        return (m.flags & (uint8_t)~PROTO_FLAG_TORQUE) ? PROTO_ERR_BAD_VALUE : 0;
+        if (m.flags & (uint8_t)~PROTO_FLAG_TORQUE) return PROTO_ERR_BAD_VALUE;
+        if (m.move_ms < 1 || m.move_ms > 5000) return PROTO_ERR_BAD_VALUE;
+        return 0;
     }
     if (m.flags & (uint8_t)~PROTO_FLAG_TORQUE) return PROTO_ERR_BAD_VALUE;
     if (m.move_ms < 1 || m.move_ms > 5000) return PROTO_ERR_BAD_VALUE;
     bool was_on = safety_torque_on(&c->safety);
-    if (c->safety.mode == MODE_FAULT) return PROTO_ERR_FAULTED;
+    if (c->safety.faults & FAULT_TORQUE_OFF_MASK) return PROTO_ERR_FAULTED;
     if (!was_on && !all_meas_valid(c)) return PROTO_ERR_FAULTED; /* no feedback yet */
     int r = safety_request_torque(&c->safety, true, now);
     if (r) return r;
@@ -141,7 +143,8 @@ static void handle_frame(control_t *c, const proto_frame_t *f) {
     case PROTO_T_CLEAR_FAULT: {
         proto_clear_fault_t m;
         proto_unpack_clear_fault(f->payload, f->len, &m);
-        reply(c, f, safety_clear(&c->safety, m.mask));
+        safety_clear(&c->safety, m.mask);
+        send_ack(c, f);
         break;
     }
     case PROTO_T_SET_STREAM: {

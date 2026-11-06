@@ -2,12 +2,10 @@
 
 #include <string.h>
 
+/* Latched faults force FAULT. Clearing them does not leave FAULT by itself: the mode stays FAULT
+ * (fault_flags may read 0) until a SET_TARGETS - torque on -> ACTIVE, torque off -> IDLE. */
 static void resolve_mode(safety_t *s) {
-    if (s->faults & FAULT_TORQUE_OFF_MASK) {
-        s->mode = MODE_FAULT;
-    } else if (s->mode == MODE_FAULT) {
-        s->mode = MODE_IDLE;
-    }
+    if (s->faults & FAULT_TORQUE_OFF_MASK) s->mode = MODE_FAULT;
 }
 
 void safety_init(safety_t *s, uint32_t now_us) {
@@ -23,10 +21,10 @@ void safety_host_frame(safety_t *s, uint32_t now_us) {
 
 int safety_request_torque(safety_t *s, bool on, uint32_t now_us) {
     if (on) {
-        if (s->mode == MODE_FAULT || (s->faults & FAULT_TORQUE_OFF_MASK)) return PROTO_ERR_FAULTED;
+        if (s->faults & FAULT_TORQUE_OFF_MASK) return PROTO_ERR_FAULTED;
         s->mode = MODE_ACTIVE;
         s->last_host_us = now_us;
-    } else if (s->mode == MODE_ACTIVE || s->mode == MODE_HOLD) {
+    } else if (s->mode != MODE_FAULT || !(s->faults & FAULT_TORQUE_OFF_MASK)) {
         s->mode = MODE_IDLE;
     }
     return 0;
@@ -37,8 +35,8 @@ void safety_estop_soft(safety_t *s) {
     resolve_mode(s);
 }
 
-int safety_clear(safety_t *s, uint16_t mask) {
-    if (mask & (uint16_t)~FAULT_DEFINED_MASK) return PROTO_ERR_BAD_VALUE;
+void safety_clear(safety_t *s, uint16_t mask) {
+    mask &= FAULT_DEFINED_MASK; /* undefined bits are ignored */
     uint16_t clearable = (uint16_t)(mask & ~s->live);
     s->faults = (uint16_t)(s->faults & ~clearable);
     if (clearable & FAULT_OVERCURRENT) {
@@ -46,7 +44,6 @@ int safety_clear(safety_t *s, uint16_t mask) {
         s->bus_oc_ms = 0;
     }
     resolve_mode(s);
-    return (s->faults & mask) ? PROTO_ERR_FAULTED : 0;
 }
 
 void safety_set_limit_clamp(safety_t *s, bool on) {

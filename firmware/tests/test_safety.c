@@ -135,11 +135,12 @@ TT_TEST(estop_soft_two_step_clear) {
     /* torque-off while faulted is accepted and changes nothing */
     TT_EQ(safety_request_torque(&f.s, false, f.in.now_us), 0);
     TT_EQ(f.s.mode, MODE_FAULT);
-    /* step 1: clear -> IDLE, torque still off */
-    TT_EQ(safety_clear(&f.s, FAULT_ESTOP_SOFT), 0);
-    TT_EQ(f.s.mode, MODE_IDLE);
+    /* step 1: clear -> still FAULT (no bits), torque off */
+    safety_clear(&f.s, FAULT_ESTOP_SOFT);
+    TT_EQ(f.s.mode, MODE_FAULT); /* stays FAULT until SET_TARGETS */
+    TT_EQ(f.s.faults, 0);
     run_ms(&f, 10);
-    TT_EQ(f.s.mode, MODE_IDLE);
+    TT_EQ(f.s.mode, MODE_FAULT);
     /* step 2: torque enable */
     TT_EQ(safety_request_torque(&f.s, true, f.in.now_us), 0);
     TT_EQ(f.s.mode, MODE_ACTIVE);
@@ -159,11 +160,11 @@ TT_TEST(clear_needs_every_latched_bit) {
     run_ms(&f, 1);
     f.in.fresh[2] = false;
     TT_EQ(f.s.faults, FAULT_ESTOP_SOFT | FAULT_OVERTEMP);
-    TT_EQ(safety_clear(&f.s, FAULT_ESTOP_SOFT), 0);
+    safety_clear(&f.s, FAULT_ESTOP_SOFT);
     TT_EQ(f.s.mode, MODE_FAULT);
     TT_EQ(safety_request_torque(&f.s, true, f.in.now_us), PROTO_ERR_FAULTED);
-    TT_EQ(safety_clear(&f.s, FAULT_OVERTEMP), 0);
-    TT_EQ(f.s.mode, MODE_IDLE);
+    safety_clear(&f.s, FAULT_OVERTEMP);
+    TT_EQ(f.s.mode, MODE_FAULT); TT_EQ(f.s.faults, 0); /* FAULT until SET_TARGETS */
     TT_EQ(safety_request_torque(&f.s, true, f.in.now_us), 0);
 }
 
@@ -175,14 +176,15 @@ TT_TEST(estop_hw_clears_only_when_loop_closed) {
     run_ms(&f, 1);
     TT_EQ(f.s.mode, MODE_FAULT);
     TT_EQ(f.s.faults & FAULT_ESTOP_HW, FAULT_ESTOP_HW);
-    TT_EQ(safety_clear(&f.s, FAULT_ESTOP_HW), PROTO_ERR_FAULTED);
+    safety_clear(&f.s, FAULT_ESTOP_HW);
+    TT_ASSERT(f.s.faults & (FAULT_ESTOP_HW)); /* condition persists: bit stays */
     TT_EQ(f.s.mode, MODE_FAULT);
     f.in.estop_loop_closed = true;
     run_ms(&f, 5);
     /* closing the loop alone does not clear it */
     TT_EQ(f.s.mode, MODE_FAULT);
-    TT_EQ(safety_clear(&f.s, FAULT_ESTOP_HW), 0);
-    TT_EQ(f.s.mode, MODE_IDLE);
+    safety_clear(&f.s, FAULT_ESTOP_HW);
+    TT_EQ(f.s.mode, MODE_FAULT); TT_EQ(f.s.faults, 0); /* FAULT until SET_TARGETS */
 }
 
 TT_TEST(overcurrent_filtered_and_latched) {
@@ -210,11 +212,12 @@ TT_TEST(overcurrent_filtered_and_latched) {
     }
     TT_EQ(f.s.mode, MODE_FAULT);
     TT_EQ(f.s.faults, FAULT_OVERCURRENT);
-    TT_EQ(safety_clear(&f.s, FAULT_OVERCURRENT), PROTO_ERR_FAULTED); /* still over */
+    safety_clear(&f.s, FAULT_OVERCURRENT);
+    TT_ASSERT(f.s.faults & (FAULT_OVERCURRENT)); /* condition persists: bit stays */ /* still over */
     f.in.current_ma[1] = 50;
     run_ms(&f, 1);
-    TT_EQ(safety_clear(&f.s, FAULT_OVERCURRENT), 0);
-    TT_EQ(f.s.mode, MODE_IDLE);
+    safety_clear(&f.s, FAULT_OVERCURRENT);
+    TT_EQ(f.s.mode, MODE_FAULT); TT_EQ(f.s.faults, 0); /* FAULT until SET_TARGETS */
 }
 
 TT_TEST(per_joint_current_limit_config) {
@@ -251,11 +254,12 @@ TT_TEST(overtemp_threshold) {
     run_ms(&f, 1);
     TT_EQ(f.s.faults, FAULT_OVERTEMP);
     TT_EQ(f.s.mode, MODE_FAULT);
-    TT_EQ(safety_clear(&f.s, FAULT_OVERTEMP), PROTO_ERR_FAULTED);
+    safety_clear(&f.s, FAULT_OVERTEMP);
+    TT_ASSERT(f.s.faults & (FAULT_OVERTEMP)); /* condition persists: bit stays */
     f.in.temp_c[4] = 69;
     run_ms(&f, 1);
-    TT_EQ(safety_clear(&f.s, FAULT_OVERTEMP), 0);
-    TT_EQ(f.s.mode, MODE_IDLE);
+    safety_clear(&f.s, FAULT_OVERTEMP);
+    TT_EQ(f.s.mode, MODE_FAULT); TT_EQ(f.s.faults, 0); /* FAULT until SET_TARGETS */
 }
 
 TT_TEST(servo_comms_three_misses) {
@@ -268,12 +272,13 @@ TT_TEST(servo_comms_three_misses) {
     run_ms(&f, 1);
     TT_EQ(f.s.faults, FAULT_SERVO_COMMS);
     TT_EQ(f.s.mode, MODE_FAULT);
-    TT_EQ(safety_clear(&f.s, FAULT_SERVO_COMMS), PROTO_ERR_FAULTED);
+    safety_clear(&f.s, FAULT_SERVO_COMMS);
+    TT_ASSERT(f.s.faults & (FAULT_SERVO_COMMS)); /* condition persists: bit stays */
     f.in.comms_miss[3] = 0;
     run_ms(&f, 1);
     TT_EQ(f.s.faults, FAULT_SERVO_COMMS); /* latched */
-    TT_EQ(safety_clear(&f.s, FAULT_SERVO_COMMS), 0);
-    TT_EQ(f.s.mode, MODE_IDLE);
+    safety_clear(&f.s, FAULT_SERVO_COMMS);
+    TT_EQ(f.s.mode, MODE_FAULT); TT_EQ(f.s.faults, 0); /* FAULT until SET_TARGETS */
 }
 
 TT_TEST(undervolt_live_with_hysteresis) {
@@ -285,21 +290,28 @@ TT_TEST(undervolt_live_with_hysteresis) {
         safety_host_frame(&f.s, f.in.now_us);
         run_ms(&f, 1);
     }
-    TT_EQ(f.s.mode, MODE_ACTIVE); /* 4 ms sag tolerated */
+    TT_EQ(f.s.faults, 0); /* 4 ms sag tolerated */
+    safety_host_frame(&f.s, f.in.now_us);
     run_ms(&f, 1);
-    TT_EQ(f.s.mode, MODE_FAULT);
     TT_EQ(f.s.faults, FAULT_BUS_UNDERVOLT);
-    TT_EQ(safety_clear(&f.s, FAULT_BUS_UNDERVOLT), PROTO_ERR_FAULTED);
+    TT_EQ(f.s.mode, MODE_ACTIVE); /* not latched: no mode change */
+    safety_clear(&f.s, FAULT_BUS_UNDERVOLT);
+    TT_EQ(f.s.faults, FAULT_BUS_UNDERVOLT); /* CLEAR_FAULT cannot clear it */
     f.in.bus_mv = 10600; /* inside the hysteresis band */
-    run_ms(&f, 200);
-    TT_EQ(f.s.mode, MODE_FAULT);
+    for (int i = 0; i < 200; i++) {
+        safety_host_frame(&f.s, f.in.now_us);
+        run_ms(&f, 1);
+    }
+    TT_EQ(f.s.faults, FAULT_BUS_UNDERVOLT);
     f.in.bus_mv = 11500;
-    run_ms(&f, SAFETY_UNDERVOLT_CLEAR_MS - 1);
-    TT_EQ(f.s.mode, MODE_FAULT);
+    for (int i = 0; i < SAFETY_UNDERVOLT_CLEAR_MS - 1; i++) {
+        safety_host_frame(&f.s, f.in.now_us);
+        run_ms(&f, 1);
+    }
+    TT_EQ(f.s.faults, FAULT_BUS_UNDERVOLT);
     run_ms(&f, 1);
-    /* self-clears, but torque stays off until a new torque-enable */
     TT_EQ(f.s.faults, 0);
-    TT_EQ(f.s.mode, MODE_IDLE);
+    TT_EQ(f.s.mode, MODE_ACTIVE);
 }
 
 TT_TEST(limit_clamp_is_informational) {
@@ -314,19 +326,23 @@ TT_TEST(limit_clamp_is_informational) {
     safety_set_limit_clamp(&f.s, false);
     TT_EQ(f.s.faults, 0);
     safety_set_limit_clamp(&f.s, true);
-    TT_EQ(safety_clear(&f.s, FAULT_LIMIT_CLAMP), 0);
+    safety_clear(&f.s, FAULT_LIMIT_CLAMP);
     TT_EQ(f.s.faults, 0);
 }
 
-TT_TEST(clear_rejects_undefined_bits) {
+TT_TEST(clear_ignores_undefined_bits) {
     fx_t f;
     fx_init(&f, 0);
     safety_estop_soft(&f.s);
-    TT_EQ(safety_clear(&f.s, 0x0101), PROTO_ERR_BAD_VALUE);
-    TT_EQ(f.s.faults, FAULT_ESTOP_SOFT); /* nothing cleared */
-    TT_EQ(safety_clear(&f.s, 0), 0);     /* empty mask: no-op */
+    safety_clear(&f.s, 0xFF00);
+    TT_EQ(f.s.faults, FAULT_ESTOP_SOFT); /* undefined bits ignored, nothing cleared */
+    safety_clear(&f.s, 0); /* empty mask: no-op */
     TT_EQ(f.s.mode, MODE_FAULT);
-    TT_EQ(safety_clear(&f.s, 0x00FF), 0);
+    safety_clear(&f.s, 0xFFFF);
+    TT_EQ(f.s.faults, 0);
+    TT_EQ(f.s.mode, MODE_FAULT);
+    /* torque-off SET_TARGETS from a cleared FAULT -> IDLE */
+    TT_EQ(safety_request_torque(&f.s, false, f.in.now_us), 0);
     TT_EQ(f.s.mode, MODE_IDLE);
 }
 

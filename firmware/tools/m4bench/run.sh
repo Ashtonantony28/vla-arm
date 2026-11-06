@@ -7,7 +7,7 @@ FW=$(cd "$HERE/../.." && pwd)
 OUT=${1:-$FW/build-m4bench}
 mkdir -p "$OUT"
 arm-none-eabi-gcc -mcpu=cortex-m4 -mthumb -mfpu=fpv4-sp-d16 -mfloat-abi=hard -O2 -std=gnu11 \
-  -Wall -Wextra -Werror -ffunction-sections -fdata-sections \
+  -Wall -Wextra -Werror -fno-math-errno -ffunction-sections -fdata-sections \
   -I"$FW/core/include" -I"$FW/sim" \
   "$HERE/bench.c" "$HERE/startup_mps2.c" "$FW"/core/src/*.c "$FW"/sim/*.c \
   -nostartfiles --specs=nano.specs --specs=nosys.specs -T"$HERE/mps2.ld" -Wl,--gc-sections \
