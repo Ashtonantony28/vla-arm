@@ -1,0 +1,11 @@
+# Versions verified on the build machine (Python 3.13, CPU only). torch from PyPI because
+# download.pytorch.org was blocked; prefer the CPU index when reachable.
+torch==2.15.0
+torchvision==0.29.2
+mujoco==4.0.0
+lerobot[dataset,diffusion]==0.7.0
+numpy==2.2.6
+PyYAML==6.0.3
+pytest==9.2.0
+imageio==2.38.1
+imageio-ffmpeg==0.8.1
