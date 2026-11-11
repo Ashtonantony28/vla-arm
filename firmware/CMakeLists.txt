@@ -95,7 +95,10 @@ if(Python3_FOUND)
   add_test(NAME cli.fw_sim_pipe
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/fw_sim_pipe_test.py
                    $<TARGET_FILE:fw_sim> ${ARMFW_PIPE_LIB})
+  # wall-clock test (1 kHz real time, watchdog windows): never run it next to CPU-heavy tests
+  set_tests_properties(cli.fw_sim_pipe PROPERTIES RUN_SERIAL TRUE)
 endif()
+set_tests_properties(timing.control_step_cost PROPERTIES RUN_SERIAL TRUE)
 
 # Register definitions of the target layer checked against ST's CMSIS header (needs the cross gcc).
 find_program(ARM_GCC arm-none-eabi-gcc)
