@@ -2,6 +2,8 @@
 
     python -m sim.record --task pick_place --episodes 30 --image-size 96
     python -m sim.record --task all --episodes 30 --image-size 96      # one dataset per task
+    python -m sim.record --task pick_place --episodes 100 --randomize default \
+        --root outputs/wave2/datasets --name-suffix _dr                  # domain-randomised
 
 Default output: <repo>/outputs/datasets/vla_arm_sim_<task>  (outputs/ is gitignored).
 Only successful expert episodes are kept; failed seeds are skipped and logged.
@@ -19,6 +21,7 @@ from pathlib import Path
 import numpy as np
 
 from sim.envs.tabletop import CAMERAS, CONTROL_HZ, TabletopEnv
+from sim.envs.randomization import config_dict
 from sim.envs.tasks import TASKS
 from sim.expert.scripted import run_episode
 from sim.spec import ACTION_NAMES, REPO_ROOT
@@ -42,7 +45,7 @@ def features(image_size: int, cameras=CAMERAS, use_videos: bool = True) -> dict:
 
 
 def record(task: str, episodes: int, root: Path, image_size: int = 96, seed0: int = RECORD_SEED_BASE,
-           overwrite: bool = False, extra_steps: int = 10, verbose: bool = True):
+           overwrite: bool = False, extra_steps: int = 10, verbose: bool = True, randomize=None):
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
     root = Path(root)
@@ -52,7 +55,7 @@ def record(task: str, episodes: int, root: Path, image_size: int = 96, seed0: in
         shutil.rmtree(root)
     ds = LeRobotDataset.create(repo_id=f"local/{root.name}", fps=CONTROL_HZ, features=features(image_size),
                                root=root, robot_type=ROBOT_TYPE, use_videos=True)
-    env = TabletopEnv(task, image_size=image_size)
+    env = TabletopEnv(task, image_size=image_size, randomize=randomize)
     sidecar, skipped = [], []
     seed, t0 = seed0, time.time()
     while len(sidecar) < episodes:
@@ -73,7 +76,8 @@ def record(task: str, episodes: int, root: Path, image_size: int = 96, seed0: in
             sidecar.append({"episode_index": len(sidecar), "seed": seed, "task_name": task,
                             "instruction": env.instruction, "length": len(frames),
                             "assignment": env.assignment,
-                            "layout": {k: list(v) for k, v in env.layout.items()}})
+                            "layout": {k: list(v) for k, v in env.layout.items()},
+                            "domain_randomization": env.dr_params})
             if verbose:
                 print(f"[{task}] ep {len(sidecar) - 1:3d} seed {seed} len {len(frames)} '{env.instruction}'")
         else:
@@ -87,7 +91,8 @@ def record(task: str, episodes: int, root: Path, image_size: int = 96, seed0: in
     size = sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
     summary = {"task": task, "root": str(root), "episodes": len(sidecar), "frames": ds.meta.total_frames,
                "skipped_failed_seeds": skipped, "bytes": size, "seconds": time.time() - t0,
-               "image_size": image_size}
+               "image_size": image_size, "randomize": randomize,
+               "dr_config": config_dict(env.dr_config)}
     (root / "meta" / "sim_record_summary.json").write_text(json.dumps(summary, indent=2))
     return summary
 
@@ -100,11 +105,14 @@ def main(argv=None):
     ap.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     ap.add_argument("--seed0", type=int, default=RECORD_SEED_BASE)
     ap.add_argument("--overwrite", action="store_true")
+    ap.add_argument("--randomize", default="none", help="domain randomisation preset: none|visual|default")
+    ap.add_argument("--name-suffix", default="", help="dataset dir = vla_arm_sim_<task><suffix>")
     args = ap.parse_args(argv)
     tasks = list(TASKS) if args.task == "all" else [args.task]
     for t in tasks:
-        s = record(t, args.episodes, args.root / f"vla_arm_sim_{t}", args.image_size, args.seed0,
-                   overwrite=args.overwrite)
+        s = record(t, args.episodes, args.root / f"vla_arm_sim_{t}{args.name_suffix}", args.image_size,
+                   args.seed0, overwrite=args.overwrite,
+                   randomize=None if args.randomize == "none" else args.randomize)
         print(json.dumps(s))
 
 

@@ -75,6 +75,35 @@ obs, reward, terminated, truncated, info = env.step(action6)
   15 mm xy and 30 ± 6 mm z with blue on the table. In every case the block must not be touching
   the fingers (it was released).
 
+## Domain randomisation — `sim/envs/randomization.py`
+
+```python
+env = TabletopEnv("pick_place", image_size=96, randomize="default")   # or "visual", a dict, a DRConfig
+```
+
+Applied at every `reset` by editing `MjModel` fields in place (no XML change):
+
+| group | what | range (preset `default`) |
+|---|---|---|
+| lighting | key-light direction tilt, key / fill intensity, colour temperature, headlight | ≤ 25°, ×0.55–1.35, ×0.4–1.6, ±12 % per channel, ambient 0.2–0.5 / diffuse 0.3–0.65 |
+| colours / textures | table tint (saturation ≤ 0.22 so it never reads as a task colour), checker repeat, arm shade; objects jittered **inside their colour class** (red H ±0.025, blue 0.58–0.66, green 0.29–0.40, yellow 0.12–0.16); cup / target random low-saturation | repeat 3–10, shade ×0.75–1.3 |
+| camera | position jitter and rotation about a random axis | scene ±5 mm / ±2°, wrist ±2 mm / ±1.5° |
+| action noise | Gaussian on the 5 arm joint targets inside `step` (the recorded action is the clean command, DART-style) | σ = 4 mrad (`visual` preset: 0) |
+
+* DR draws come from their own streams seeded from the reset seed (`[seed, 0xD12]`, `[seed, 0xAC7]`),
+  so for a given seed the **layout and instruction are identical with or without DR** — every
+  policy and every DR setting is evaluated on the same start poses.
+* All draws happen even for disabled groups, so toggling one group does not change the others.
+* `env.dr_params` holds what was drawn (also saved per episode in `meta/sim_episodes.jsonl`).
+* Tests (`sim/tests/test_randomization.py`): same seed → identical images/params, layouts
+  independent of DR, nominal env untouched, colours stay in class over 60 seeds, camera/light
+  bounds, seeded action noise, toggles independent.
+* The experts are unaffected: `python -m sim.expert.evaluate --episodes 40 --randomize default`
+  → pick_place / stack / sort 40/40 each (Wilson 95 % CI 91–100 %).
+
+Contact sheet (rows: DR pick_place, DR sort, nominal; seeds 900000–900005):
+`outputs/wave2/viz/dr_sheet.png` (not in git).
+
 ## Scripted experts — `sim/expert/`
 
 Privileged-state experts: Cartesian waypoints (approach → descend → close → lift → transfer → lower
@@ -92,6 +121,10 @@ Result (seeds 0–99): pick_place 100/100, stack 100/100, sort 100/100
 
 ```bash
 python -m sim.record --task all --episodes 30 --image-size 96 --overwrite
+# wave 2: domain-randomised data (two halves recorded in parallel, plus a validation set)
+python -m sim.record --task pick_place --episodes 50 --randomize default --root outputs/wave2/datasets --name-suffix _dr_a
+python -m sim.record --task pick_place --episodes 50 --randomize default --seed0 1000 --root outputs/wave2/datasets --name-suffix _dr_b
+python -m sim.record --task pick_place --episodes 10 --randomize default --seed0 950000 --root outputs/wave2/datasets --name-suffix _dr_val
 ```
 
 Uses LeRobot's own `LeRobotDataset.create / add_frame / save_episode / finalize` (dataset format
@@ -109,6 +142,19 @@ Recorded on the build machine into `outputs/datasets/` (gitignored), 96×96:
 | vla_arm_sim_stack | 30 | 5 332 | 10.1 MB | 4.1 min |
 | vla_arm_sim_sort | 30 | 11 014 | 25.1 MB | 10.3 min |
 
+Wave 2, domain-randomised (`--randomize default`), into `outputs/wave2/datasets/` (times are with
+3 recorders sharing the CPU; EGL uses llvmpipe software rendering here, ~1.1 cores per recorder):
+
+| dataset | episodes (seeds) | frames | size | time |
+|---|---|---|---|---|
+| vla_arm_sim_pick_place_dr_a | 50 (0–49) | 8 899 | 17.3 MB | 15.7 min |
+| vla_arm_sim_pick_place_dr_b | 50 (1000–1049) | 8 899 | 17.1 MB | 15.8 min |
+| vla_arm_sim_pick_place_dr_val | 10 (950000–) | 1 800 | 3.5 MB | 3.0 min |
+| vla_arm_sim_pick_place_val (nominal) | 10 (950000–) | 1 799 | 3.9 MB | 3.1 min |
+| vla_arm_sim_sort_dr | 100 (0–99) | 36 648 | 76.6 MB | 65.8 min |
+
+(`vla_arm_sim_pick_place_dr` in that folder is an aborted, unfinalised recording; ignore it.)
+
 ## Tests
 
 ```bash
@@ -120,4 +166,6 @@ sim/.venv/bin/python -m pytest -q sim/tests policies/tests
 * Real: geometry, limits, masses, stall torque, vmax from the spec; contact physics; cameras.
 * Simplified: link shapes are primitives; servo = ideal saturating PD (no backlash, deadband,
   compliance, temperature); gripper linkage is linear; the expert uses privileged object poses;
-  bowls are fixed during an episode; lighting/texture are not randomised yet (PLAN 5 asks for it).
+  bowls are fixed during an episode; domain randomisation covers lighting, colours, camera pose
+  and action noise but not object size/mass/friction, textures beyond a tinted checker, or
+  camera intrinsics.

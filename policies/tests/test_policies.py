@@ -69,3 +69,55 @@ def test_train_and_eval_end_to_end(tiny_ds, tmp_path):
     s = evaluate(r["checkpoint"], "pick_place", episodes=2, max_steps=10, verbose=False)
     assert s["episodes"] == 2 and len(s["per_episode"]) == 2
     assert 0.0 <= s["wilson95"][0] <= s["wilson95"][1] <= 1.0
+
+
+# ---- wave 2: from-scratch small CNN backbone, EE state, augmentation, strict reload -----------
+
+def test_small_cnn_shapes():
+    from policies.backbones import SmallCNN
+
+    for stride, hw in ((8, 12), (16, 6)):
+        y = SmallCNN(stride=stride)(torch.zeros(2, 3, 96, 96))
+        assert y.shape[-2:] == (hw, hw)
+
+
+def test_state_transform_matches_mujoco_tcp():
+    from policies.state import transform_state
+    from sim.envs.tabletop import TabletopEnv
+
+    env = TabletopEnv("pick_place", render_images=False)
+    env.reset(seed=2)
+    s = transform_state(env.joint_state(), "joints_ee")
+    assert s.shape == (9,)
+    assert np.allclose(s[6:], env.tcp_pos(), atol=1e-4)
+    assert transform_state(np.zeros((4, 3, 6)), "joints_ee").shape == (4, 3, 9)
+
+
+def test_color_jitter_and_shift_are_shared_across_window(tiny_ds):
+    from policies.data import ChunkDataset
+
+    ds = ChunkDataset([tiny_ds], list(range(4)), [-1, 0], augment_shift=3, color_jitter=0.3,
+                      state_mode="joints_ee")
+    item = ds[20]
+    img = item["observation.images.wrist"]
+    assert img.shape[0] == 2 and 0.0 <= img.min() and img.max() <= 1.0
+    assert item["observation.state"].shape == (2, 9)
+    assert ds.stats()["observation.state"]["mean"].shape == (9,)
+    # same aug on both frames: at an episode start the window repeats the first frame
+    first = ds[int(ds.ep_start[0])]["observation.images.wrist"]
+    assert torch.allclose(first[0], first[1])
+
+
+@pytest.mark.parametrize("kind", ["act", "diffusion"])
+def test_small_cnn_train_save_strict_reload(tiny_ds, tmp_path, kind):
+    from policies.eval_sim import evaluate, load_policy
+
+    bb = {"name": "small_cnn", "stride": 16, "width": 16}
+    r = train(kind, [tiny_ds], tmp_path / kind, steps=2, batch_size=4, chunk_size=16, verbose=False,
+              backbone=bb, state_mode="joints_ee", color_jitter=0.2, val_roots=[tiny_ds], val_every=1)
+    assert r["final_val_loss"] is not None
+    policy, pre, post, enc, meta = load_policy(r["checkpoint"])
+    assert meta["backbone"] == bb and meta["state_mode"] == "joints_ee"
+    assert any("backbone.net" in n for n, _ in policy.named_parameters())
+    s = evaluate(r["checkpoint"], "pick_place", episodes=1, max_steps=5, verbose=False, randomize="default")
+    assert s["episodes"] == 1 and s["per_episode"][0]["category"] in ("missed_grasp", "dropped", "wrong_object")
