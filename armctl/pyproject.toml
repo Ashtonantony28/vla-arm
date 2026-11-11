@@ -14,6 +14,8 @@ dependencies = ["numpy>=1.26", "pyserial>=3.5", "pyyaml>=6"]
 test = ["pytest>=8", "hypothesis>=6"]
 # LeRobot Robot/Teleoperator plugins (armctl.lerobot); API matched against 0.7.0
 lerobot = ["lerobot>=0.7,<0.8"]
+# independent FK/Jacobian cross-check (tests/test_crosscheck.py)
+crosscheck = ["pin>=3", "ikpy>=3.4"]
 
 [project.scripts]
 armctl-ping = "armctl.cli:ping_main"
