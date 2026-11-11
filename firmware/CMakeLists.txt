@@ -29,19 +29,22 @@ set(ARMFW_CORE_SRC
   core/src/traj.c
   core/src/safety.c
   core/src/servo_bus.c
-  core/src/control.c)
+  core/src/control.c
+  core/src/analog.c
+  core/src/calstore.c
+  core/src/host_link.c)
 add_library(armfw_core STATIC ${ARMFW_CORE_SRC})
 target_include_directories(armfw_core PUBLIC core/include)
 target_compile_options(armfw_core PRIVATE ${ARMFW_STRICT})
 
 # ---------------- host simulation (fake servos + fake HAL) ----------------
-add_library(armfw_sim STATIC sim/fake_servo.c sim/sim.c)
+add_library(armfw_sim STATIC sim/fake_servo.c sim/fake_flash.c sim/sim.c)
 target_include_directories(armfw_sim PUBLIC sim)
 target_link_libraries(armfw_sim PUBLIC armfw_core)
 target_compile_options(armfw_sim PRIVATE ${ARMFW_STRICT})
 
 # ---------------- libarmfw.so: stable C API for the host driver ----------------
-add_library(armfw SHARED lib/armfw_api.c ${ARMFW_CORE_SRC} sim/fake_servo.c sim/sim.c)
+add_library(armfw SHARED lib/armfw_api.c ${ARMFW_CORE_SRC} sim/fake_servo.c sim/fake_flash.c sim/sim.c)
 target_include_directories(armfw PUBLIC lib core/include sim)
 target_compile_definitions(armfw PRIVATE ARMFW_BUILDING_LIB)
 target_compile_options(armfw PRIVATE ${ARMFW_STRICT} -fvisibility=hidden)
@@ -63,6 +66,10 @@ foreach(src ${ARMFW_TEST_SOURCES})
   target_include_directories(${exe} PRIVATE tests lib)
   target_compile_definitions(${exe} PRIVATE _POSIX_C_SOURCE=200809L)
   target_compile_options(${exe} PRIVATE -Wall -Wextra -Werror)
+  if(exe STREQUAL "test_host_link")
+    find_package(Threads REQUIRED)
+    target_link_libraries(${exe} PRIVATE Threads::Threads)
+  endif()
   if(exe STREQUAL "test_lib_api")
     target_link_libraries(${exe} PRIVATE armfw)
   endif()
@@ -88,4 +95,13 @@ if(Python3_FOUND)
   add_test(NAME cli.fw_sim_pipe
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/fw_sim_pipe_test.py
                    $<TARGET_FILE:fw_sim> ${ARMFW_PIPE_LIB})
+  # wall-clock test (1 kHz real time, watchdog windows): never run it next to CPU-heavy tests
+  set_tests_properties(cli.fw_sim_pipe PROPERTIES RUN_SERIAL TRUE)
+endif()
+set_tests_properties(timing.control_step_cost PROPERTIES RUN_SERIAL TRUE)
+
+# Register definitions of the target layer checked against ST's CMSIS header (needs the cross gcc).
+find_program(ARM_GCC arm-none-eabi-gcc)
+if(Python3_FOUND AND ARM_GCC)
+  add_test(NAME tools.check_regs COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_regs.py)
 endif()

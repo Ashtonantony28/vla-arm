@@ -42,12 +42,17 @@ typedef enum {
 #define SAFETY_OC_SAMPLES 8              /* choice: 8 consecutive over-limit reads (~48 ms/joint) */
 #define SAFETY_BUS_OC_MA 8000            /* choice: total servo rail current limit (10 A PSU) */
 #define SAFETY_BUS_OC_MS 50              /* choice: 50 consecutive ms over the bus limit */
+#define SAFETY_BOARD_OT_DC 850           /* choice: board NTC > 85.0 C ... */
+#define SAFETY_BOARD_OT_MS 1000          /* ... for 1 s latches OVERTEMP */
+#define SAFETY_BOARD_OT_LIVE_DC 800      /* choice: OVERTEMP stays uncleareable while >= 80.0 C */
 
 typedef struct {
     uint32_t now_us;
     bool estop_loop_closed; /* hardware e-stop loop state (true = closed = OK) */
     uint16_t bus_mv;
     int16_t bus_ma;
+    int16_t board_temp_dc;  /* board NTC, deci-degC */
+    bool board_temp_valid;  /* false: sensor open/short or ADC stale -> no board overtemp check */
     /* Per-joint servo feedback. fresh[j] is true only on the cycle a new reply was decoded. */
     bool fresh[ARMFW_N_JOINTS];
     int16_t current_ma[ARMFW_N_JOINTS];
@@ -64,6 +69,8 @@ typedef struct {
     uint16_t bus_oc_ms;
     uint16_t uv_low_ms;
     uint16_t uv_ok_ms;
+    uint16_t board_hot_ms;
+    bool board_overtemp; /* live: board NTC at or above SAFETY_BOARD_OT_LIVE_DC */
     uint8_t joint_overcurrent; /* bitmask, live per joint */
     uint8_t joint_overtemp;    /* bitmask, live per joint */
     uint8_t joint_comms;       /* bitmask, live per joint */

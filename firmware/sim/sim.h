@@ -4,6 +4,7 @@
 #define ARMFW_SIM_H
 
 #include "armfw/control.h"
+#include "fake_flash.h"
 #include "fake_servo.h"
 
 #define SIM_HOST_IN_CAP 16384u
@@ -33,6 +34,14 @@ typedef struct {
     bool echo_tx;          /* half-duplex echo of our own TX into RX */
     uint32_t jitter_us;    /* if nonzero, add pseudo-random timing jitter up to this much */
     uint32_t rng;
+    float board_temp_c;    /* board NTC temperature */
+    bool adc_dead;         /* adc_read reports no new conversion */
+    bool adc_override;     /* feed adc_raw verbatim instead of the physical model */
+    adc_raw_t adc_raw;
+    float ntc_cache_c;
+    uint16_t ntc_cache_code;
+    fake_flash_t flash;    /* calibration flash, survives sim_reboot */
+    flash_port_t flash_port;
     /* observations */
     uint32_t last_tx_bytes;
     uint32_t max_tx_bytes;
@@ -40,6 +49,11 @@ typedef struct {
 } sim_t;
 
 void sim_init(sim_t *s, uint32_t start_us);
+/* Power cycle: everything restarts (servos, control state) except the flash contents, which keep
+ * whatever was (partially) written; pending flash faults are cleared. */
+void sim_reboot(sim_t *s, uint32_t start_us);
+/* The raw ADC codes the physical model produces right now. */
+void sim_adc_codes(sim_t *s, adc_raw_t *out);
 /* Advance virtual time by one period, update servo physics, run one control step. */
 void sim_step(sim_t *s);
 void sim_run(sim_t *s, uint32_t steps);

@@ -4,6 +4,7 @@
 #define ARMFW_CONFIG_H
 
 #include "armfw/common.h"
+#include "armfw/proto.h"
 
 #define CFG_TICKS_PER_REV 4096
 #define CFG_CENTER_TICK 2048
@@ -15,6 +16,19 @@
 #define CFG_DEFAULT_CURRENT_LIMIT_MA 2000
 #define CFG_DEFAULT_WD_HOLD_MS 100
 #define CFG_DEFAULT_WD_OFF_MS 500
+
+/* Proposed protocol additions (global CONFIG keys, joint 0xFF; see firmware/README.md):
+ *   0x20 save the current configuration to flash, value must be CFG_COMMIT_MAGIC. ACK is sent
+ *        only after the record is written and read back; NACK 4 if there is no flash, a save is
+ *        already running, or the write failed.
+ *   0x21 restore the built-in defaults in RAM (not in flash: follow with 0x20 to persist), value
+ *        must be CFG_COMMIT_MAGIC; refused while torque is on (offsets would jump the arm). */
+#define CFG_KEY_SAVE_FLASH 0x20u
+#define CFG_KEY_RESTORE_DEFAULTS 0x21u
+#define CFG_COMMIT_MAGIC 0x5AFE
+/* NACK code for calibration keys while torque is on. The firmware has used 2 since wave 1 (and
+ * tests/integration expects 2); spec v1.1 clarification 5 says 4. One place to flip it. */
+#define CFG_ERR_TORQUE_ON PROTO_ERR_BAD_VALUE
 
 typedef struct {
     int32_t offset_ticks; /* tick reading at joint zero is CENTER + offset_ticks */
@@ -37,6 +51,10 @@ void config_defaults(armfw_config_t *c);
 /* Apply a CONFIG message. torque_on: true in ACTIVE/HOLD (calibration keys are refused then).
  * Returns 0 on success or a PROTO_ERR_* NACK code. Validation never leaves partial changes. */
 int config_apply(armfw_config_t *c, uint8_t joint, uint8_t key, int32_t value, bool torque_on);
+
+/* True if every field passes the same range checks as a CONFIG message would (used to validate
+ * records loaded from flash). */
+bool config_validate(const armfw_config_t *c);
 
 /* Joint angle (mrad) -> servo goal tick, clamped to 0..4095. */
 uint16_t config_mrad_to_ticks(const joint_cfg_t *j, float mrad);
