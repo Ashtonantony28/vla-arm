@@ -96,3 +96,9 @@ if(Python3_FOUND)
            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/fw_sim_pipe_test.py
                    $<TARGET_FILE:fw_sim> ${ARMFW_PIPE_LIB})
 endif()
+
+# Register definitions of the target layer checked against ST's CMSIS header (needs the cross gcc).
+find_program(ARM_GCC arm-none-eabi-gcc)
+if(Python3_FOUND AND ARM_GCC)
+  add_test(NAME tools.check_regs COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_regs.py)
+endif()

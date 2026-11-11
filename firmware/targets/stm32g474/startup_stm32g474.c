@@ -31,7 +31,7 @@ void USB_HP_IRQHandler(void) WEAK_ALIAS;
 void USB_LP_IRQHandler(void) WEAK_ALIAS;
 void USBWakeUp_IRQHandler(void) WEAK_ALIAS;
 
-#define N_IRQ 102 /* STM32G474: IRQ0..IRQ101 - verify against RM0440 */
+#define N_IRQ 102 /* STM32G474: IRQ0..IRQ101 (FMAC_IRQn = 101 in ST's header; tools/check_regs.py) */
 #define USB_HP_IRQn 19 /* checked against ST's stm32g474xx.h (tools/check_regs.py) */
 #define USB_LP_IRQn 20
 #define USBWakeUp_IRQn 42
