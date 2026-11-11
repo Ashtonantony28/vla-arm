@@ -137,3 +137,69 @@ def test_nan_rejected():
 def test_bad_shape():
     with pytest.raises(ValueError):
         SafetyShim().filter([0, 0, 0], 0.1)
+
+
+# ---------------------------------------------------------------- wave 2: collisions, trajectory
+def test_self_collision_rejected_without_previous():
+    s = SafetyShim()
+    q = np.array([0.6, -0.82, 2.29, 1.83, 1.11, 1.04])  # gripper folded onto the shoulder bracket
+    assert any("shoulder" in v for v in s.collision_violations(q))
+    r = s.filter(q, 0.5)
+    assert r.rejected and "collision" in r.reasons[-1]
+
+
+def test_self_collision_scaled_back_along_path():
+    s = SafetyShim()
+    # arm raised, elbow folded back over the shoulder: pitching the wrist up swings the gripper
+    # into the shoulder bracket
+    start = np.array([-1.489, -1.282, -2.455, -0.6, 0.606, 1.418])
+    target = np.array([-1.489, -1.282, -2.455, -1.075, 0.606, 1.418])
+    assert s.violations(start) == []
+    assert any("shoulder" in v for v in s.collision_violations(target))
+    s.reset(start)
+    r = s.filter(target, 5.0)
+    assert not r.rejected and "scaled step" in r.reasons[-1] and "collision" in r.reasons[-1]
+    assert -1.075 < r.q_out[3] < -0.6
+    assert s.violations(r.q_out) == []
+
+
+def test_table_contact_of_gripper_body_counts():
+    """TCP above z_min but the fingers below the table: refused."""
+    s = SafetyShim()
+    q = np.append(K.ik([0.25, 0.0, 0.012], math.pi / 2, q_ref=HOME), 0.5)
+    assert s.workspace_violations(q) == []  # the point checks alone would allow it
+    assert any("table" in v for v in s.collision_violations(q))
+
+
+def test_check_chunk():
+    s = SafetyShim()
+    q_table = np.append(K.ik([0.25, 0.0, 0.0], math.pi / 2, q_ref=HOME), 0.5)
+    Q = HOME + (q_table - HOME) * np.linspace(0, 1, 50)[:, None]
+    rep = s.check_chunk(Q)
+    assert rep.ok[0] and not rep.ok[-1]
+    assert rep.first_bad is not None and np.all(rep.ok[: rep.first_bad]) and rep.reason
+    assert s.last is None  # no state change
+
+
+def test_trajectory_check_catches_mid_move_replan_overshoot():
+    """A command whose straight joint-space line is safe, sent while the board is still moving
+    fast from the previous command: the quintic the board replans from that (p, v, a) state
+    swings into the table. The straight-line check lets it through; the trajectory-twin check
+    scales it back so the plan the board will actually execute stays safe."""
+    A = np.array([-0.0292, -1.0143, 1.1029, 1.4822, 0.0, 0.5])
+    B = np.array([0.4297, -0.7866, 1.2879, 1.0695, 0.0, 0.5])
+    C = np.array([-0.599, -1.1114, 1.7915, 0.8907, 0.0, 0.5])
+    out = {}
+    for traj in (False, True):
+        s = SafetyShim(config=SafetyConfig(trajectory=traj, vel_scale=10.0))
+        s.reset(A)
+        assert not s.filter(B, 0.309, now=0.0).modified
+        out[traj] = (s.filter(C, 0.041, now=0.122), s)
+    r_line, s_line = out[False]
+    r_traj, s_traj = out[True]
+    assert not r_line.modified
+    executed = s_line.traj.sample(0.001) / 1000.0  # what the board runs for the unmodified command
+    assert s_traj._depths(executed)[0].max() > 0.01  # > 1 cm of violation
+    assert r_traj.modified and not r_traj.rejected
+    safe_plan = s_traj.traj.sample(0.001) / 1000.0
+    assert s_traj._depths(safe_plan)[0].max() == 0.0
