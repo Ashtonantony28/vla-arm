@@ -99,15 +99,33 @@ class FailureTracker:
         else:
             cat = "dropped"
         off = None if self.first_grasp_offset is None else round(self.first_grasp_offset, 1)
-        return {"category": cat, "first_grasp_offset_mm": off}
+        out = {"category": cat, "first_grasp_offset_mm": off}
+        if self.env.task_name == "sort":  # did the policy follow the instruction's colour->bowl mapping?
+            from sim.envs.tasks import block_in_bowl
+
+            right = wrong = 0
+            for color, bowl in self.env.assignment.items():
+                p, _ = self.env.object_pose(f"{color}_block")
+                other = "yellow" if bowl == "green" else "green"
+                right += block_in_bowl(p, self.env.object_pose(f"{bowl}_bowl")[0])
+                wrong += block_in_bowl(p, self.env.object_pose(f"{other}_bowl")[0])
+            out.update(blocks_in_correct_bowl=int(right), blocks_in_wrong_bowl=int(wrong))
+        return out
 
 
 @torch.no_grad()
 def evaluate(ckpt, task: str, episodes: int = 20, seed0: int = EVAL_SEED_BASE, instructions: str = "train",
              max_steps: int | None = None, video_dir: Path | None = None, verbose: bool = True,
-             randomize=None) -> dict:
-    """randomize: domain-randomisation preset for the eval env (None = nominal scene)."""
+             randomize=None, act_exec_steps: int | None = None) -> dict:
+    """randomize: domain-randomisation preset for the eval env (None = nominal scene).
+    act_exec_steps: ACT only -- disable temporal ensembling and execute this many actions of each
+    predicted chunk open-loop (None keeps the checkpoint's setting, i.e. ensembling every step)."""
     policy, pre, post, enc, meta = load_policy(ckpt)
+    if act_exec_steps:
+        if policy.config.type != "act":
+            raise ValueError("act_exec_steps only applies to ACT")
+        policy.config.temporal_ensemble_coeff = None
+        policy.config.n_action_steps = int(act_exec_steps)
     cams = meta["camera_keys"]
     state_mode = meta.get("state_mode", "joints")
     env = TabletopEnv(task, image_size=meta["image_size"], cameras=[c.split(".")[-1] for c in cams],
@@ -148,9 +166,12 @@ def evaluate(ckpt, task: str, episodes: int = 20, seed0: int = EVAL_SEED_BASE, i
     for r in results:
         cats[r["category"]] = cats.get(r["category"], 0) + 1
     offs = [r["first_grasp_offset_mm"] for r in results if r["first_grasp_offset_mm"] is not None]
+    sort_counts = ({"blocks_in_correct_bowl": sum(r["blocks_in_correct_bowl"] for r in results),
+                    "blocks_in_wrong_bowl": sum(r["blocks_in_wrong_bowl"] for r in results)}
+                   if task == "sort" else {})
     summary = {"checkpoint": str(ckpt), "task": task, "instructions": instructions, "episodes": episodes,
-               "randomize": randomize, "successes": n_ok, "rate": n_ok / episodes, "wilson95": [lo, hi],
-               "categories": cats,
+               "randomize": randomize, "act_exec_steps": act_exec_steps, "successes": n_ok, "rate": n_ok / episodes, "wilson95": [lo, hi],
+               "categories": cats, **sort_counts,
                "median_first_grasp_offset_mm": float(np.median(offs)) if offs else None,
                "mean_steps_success": float(np.mean([r["steps"] for r in results if r["success"]])) if n_ok else None,
                "seconds": time.time() - t0, "per_episode": results}
@@ -170,11 +191,13 @@ def main(argv=None):
     ap.add_argument("--video-dir", type=Path, default=None)
     ap.add_argument("--randomize", default="none", help="eval-env domain randomisation: none|visual|default")
     ap.add_argument("--threads", type=int, default=2)
+    ap.add_argument("--act-exec-steps", type=int, default=None,
+                    help="ACT: no temporal ensembling, execute N actions per chunk")
     ap.add_argument("--out", type=Path, default=None, help="write the JSON summary here")
     a = ap.parse_args(argv)
     torch.set_num_threads(a.threads)
     s = evaluate(a.checkpoint, a.task, a.episodes, a.seed0, a.instructions, a.max_steps, a.video_dir,
-                 randomize=None if a.randomize == "none" else a.randomize)
+                 randomize=None if a.randomize == "none" else a.randomize, act_exec_steps=a.act_exec_steps)
     if a.out:
         a.out.parent.mkdir(parents=True, exist_ok=True)
         a.out.write_text(json.dumps(s, indent=2))

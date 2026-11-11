@@ -47,7 +47,8 @@ def main(argv=None):
             (out / f"eval_{rz}_{ins}.json").write_text(json.dumps(s, indent=2))
             lo, hi = wilson_interval(s["successes"], s["episodes"])
             row = {"name": a.name, "note": a.note, "task": a.task, "policy": meta["policy"],
-                   "train_args": targs, "steps": meta["steps"], "train_min": round(meta["train_seconds"] / 60, 1),
+                   "train_args": targs, "steps": meta.get("total_steps", meta["steps"]),
+                   "train_min": round(meta["train_seconds"] / 60, 1),
                    "n_params_M": round(meta["n_params"] / 1e6, 2), "final_loss": meta.get("final_logged_loss"),
                    "final_val_l1": meta.get("final_val_l1"), "eval_randomize": rz, "instructions": ins,
                    "successes": s["successes"], "episodes": s["episodes"], "wilson95": [round(lo, 3), round(hi, 3)],

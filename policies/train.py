@@ -85,7 +85,10 @@ def train(kind: str, roots: list[Path], out: Path, steps: int, batch_size: int =
           save_every: int = 1000, augment_shift: int = 4, text_encoder: str = "auto",
           num_threads: int | None = None, chunk_size: int = 50, verbose: bool = True,
           backbone: dict | None = None, state_mode: str = "joints", color_jitter: float = 0.0,
-          lr: float | None = None, val_roots: list[Path] | None = None, val_every: int = 500) -> dict:
+          lr: float | None = None, val_roots: list[Path] | None = None, val_every: int = 500,
+          init_checkpoint: Path | None = None) -> dict:
+    """init_checkpoint: continue from these weights (strict load; the optimizer state is not saved,
+    so AdamW restarts). The architecture flags must match the checkpoint's."""
     torch.manual_seed(seed)
     np.random.seed(seed)
     if num_threads:
@@ -94,6 +97,12 @@ def train(kind: str, roots: list[Path], out: Path, steps: int, batch_size: int =
     t_load = time.time()
     cfg, ds, policy, pre, post, enc = build(kind, roots, size, episodes, augment_shift, text_encoder, chunk_size,
                                             backbone, state_mode, color_jitter, lr)
+    prior_steps = 0
+    if init_checkpoint is not None:
+        init_checkpoint = Path(init_checkpoint)
+        type(policy)._load_as_safetensor(policy, str(init_checkpoint / "model.safetensors"), "cpu", True)
+        prior = json.loads((init_checkpoint / "vla_arm_meta.json").read_text())
+        prior_steps = int(prior.get("total_steps", prior.get("steps", 0)))
     val_ds = (ChunkDataset(val_roots, cfg.action_delta_indices, cfg.observation_delta_indices,
                            state_mode=state_mode) if val_roots else None)
     t_load = time.time() - t_load
@@ -112,7 +121,8 @@ def train(kind: str, roots: list[Path], out: Path, steps: int, batch_size: int =
             "image_size": ds.images[ds.camera_keys[0]].shape[-1], "camera_keys": ds.camera_keys,
             "n_params": n_params, "batch_size": batch_size, "seed": seed, "config": config_summary(cfg),
             "backbone": backbone, "state_mode": state_mode, "augment_shift": augment_shift,
-            "color_jitter": color_jitter, "val_datasets": [str(r) for r in val_roots or []]}
+            "color_jitter": color_jitter, "val_datasets": [str(r) for r in val_roots or []],
+            "init_checkpoint": str(init_checkpoint) if init_checkpoint else None, "prior_steps": prior_steps}
     log_f = open(out / "train_log.csv", "w", newline="")
     log = csv.writer(log_f)
     log.writerow(["step", "loss", "l1_loss", "kld_loss", "lr", "elapsed_s", "val_loss", "val_l1"])
@@ -159,7 +169,7 @@ def train(kind: str, roots: list[Path], out: Path, steps: int, batch_size: int =
                 break
     wall = time.time() - t0
     log_f.close()
-    meta.update({"steps": step, "train_seconds": wall, "data_load_seconds": t_load,
+    meta.update({"steps": step, "total_steps": prior_steps + step, "train_seconds": wall, "data_load_seconds": t_load,
                  "first_logged_loss": history[0][1] if history else None,
                  "final_logged_loss": history[-1][1] if history else None})
     if val_ds is not None:
@@ -180,7 +190,7 @@ def main(argv=None):
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--steps", type=int, default=3000)
     ap.add_argument("--batch-size", type=int, default=16)
-    ap.add_argument("--size", choices=["small", "paper"], default="small")
+    ap.add_argument("--size", choices=["tiny", "small", "paper"], default="small")
     ap.add_argument("--episodes", type=int, nargs="*", default=None, help="subset of episode indices")
     ap.add_argument("--time-limit-min", type=float, default=None)
     ap.add_argument("--augment-shift", type=int, default=4)
@@ -196,6 +206,7 @@ def main(argv=None):
     ap.add_argument("--lr", type=float, default=None)
     ap.add_argument("--val-datasets", nargs="*", type=Path, default=None)
     ap.add_argument("--val-every", type=int, default=500)
+    ap.add_argument("--init-checkpoint", type=Path, default=None, help="continue from these weights")
     ap.add_argument("--log-every", type=int, default=25)
     ap.add_argument("--save-every", type=int, default=1000)
     a = ap.parse_args(argv)
@@ -203,7 +214,7 @@ def main(argv=None):
               a.time_limit_min, a.log_every, a.save_every, a.augment_shift, a.text_encoder, a.threads,
               a.chunk_size, backbone=backbone_spec(a.backbone, a.backbone_stride, a.backbone_width),
               state_mode=a.state_mode, color_jitter=a.color_jitter, lr=a.lr, val_roots=a.val_datasets,
-              val_every=a.val_every)
+              val_every=a.val_every, init_checkpoint=a.init_checkpoint)
     print(json.dumps({k: v for k, v in r.items() if k not in ("history", "config", "val_history")}, default=str))
 
 
