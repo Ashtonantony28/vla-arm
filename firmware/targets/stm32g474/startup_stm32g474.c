@@ -27,10 +27,14 @@ void USART1_IRQHandler(void) WEAK_ALIAS;
 void EXTI15_10_IRQHandler(void) WEAK_ALIAS;
 void TIM6_DAC_IRQHandler(void) WEAK_ALIAS;
 void LPUART1_IRQHandler(void) WEAK_ALIAS;
+void USB_HP_IRQHandler(void) WEAK_ALIAS;
 void USB_LP_IRQHandler(void) WEAK_ALIAS;
+void USBWakeUp_IRQHandler(void) WEAK_ALIAS;
 
-#define N_IRQ 102 /* STM32G474: IRQ0..IRQ101 - verify against RM0440 */
+#define N_IRQ 102 /* STM32G474: IRQ0..IRQ101 (FMAC_IRQn = 101 in ST's header; tools/check_regs.py) */
+#define USB_HP_IRQn 19 /* checked against ST's stm32g474xx.h (tools/check_regs.py) */
 #define USB_LP_IRQn 20
+#define USBWakeUp_IRQn 42
 
 typedef void (*vector_t)(void);
 
@@ -52,7 +56,9 @@ __attribute__((section(".isr_vector"), used)) const vector_t g_vectors[16 + N_IR
     [16 ... 16 + N_IRQ - 1] = Default_Handler,
     [16 + DMA1_Channel1_IRQn] = DMA1_Channel1_IRQHandler,
     [16 + DMA1_Channel2_IRQn] = DMA1_Channel2_IRQHandler,
+    [16 + USB_HP_IRQn] = USB_HP_IRQHandler,
     [16 + USB_LP_IRQn] = USB_LP_IRQHandler,
+    [16 + USBWakeUp_IRQn] = USBWakeUp_IRQHandler,
     [16 + USART1_IRQn] = USART1_IRQHandler,
     [16 + EXTI15_10_IRQn] = EXTI15_10_IRQHandler,
     [16 + TIM6_DAC_IRQn] = TIM6_DAC_IRQHandler,

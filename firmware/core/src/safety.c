@@ -103,7 +103,15 @@ void safety_update(safety_t *s, const armfw_config_t *cfg, const safety_inputs_t
         s->bus_oc_ms = 0;
     }
     set_live(s, FAULT_OVERCURRENT, s->joint_overcurrent != 0 || s->bus_oc_ms != 0);
-    set_live(s, FAULT_OVERTEMP, s->joint_overtemp != 0);
+    /* Board temperature (NTC between the servo-rail switch and the shunt) */
+    if (in->board_temp_valid && in->board_temp_dc > SAFETY_BOARD_OT_DC) {
+        if (s->board_hot_ms < 0xFFFFu) s->board_hot_ms++;
+        if (s->board_hot_ms >= SAFETY_BOARD_OT_MS) s->faults |= FAULT_OVERTEMP;
+    } else {
+        s->board_hot_ms = 0;
+    }
+    s->board_overtemp = in->board_temp_valid && in->board_temp_dc >= SAFETY_BOARD_OT_LIVE_DC;
+    set_live(s, FAULT_OVERTEMP, s->joint_overtemp != 0 || s->board_overtemp);
     set_live(s, FAULT_SERVO_COMMS, s->joint_comms != 0);
 
     /* Bus undervoltage, live with hysteresis */

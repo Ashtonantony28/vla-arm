@@ -3,6 +3,8 @@
 #ifndef ARMFW_CONTROL_H
 #define ARMFW_CONTROL_H
 
+#include "armfw/analog.h"
+#include "armfw/calstore.h"
 #include "armfw/common.h"
 #include "armfw/config.h"
 #include "armfw/hal_port.h"
@@ -46,6 +48,8 @@ typedef struct {
     uint32_t servo_replies;
     uint32_t servo_misses;
     uint32_t replans;
+    uint32_t cal_saves;
+    uint32_t cal_save_failures;
 } control_stats_t;
 
 typedef struct {
@@ -71,9 +75,15 @@ typedef struct {
     uint32_t last_step_exec_us;
     bool servo_torque; /* torque state last sent to the servos */
     armfw_mode_t prev_mode;
+    analog_t analog;
+    calstore_t store;
+    bool cal_from_flash;    /* boot configuration came from a valid flash record */
+    bool save_pending;      /* CONFIG 0x20 waiting for the flash write to finish */
+    uint8_t save_seq;       /* its SEQ, for the deferred ACK/NACK */
     control_stats_t stats;
 } control_t;
 
+/* Initialise; loads the calibration from hal->flash when present (defaults otherwise). */
 void control_init(control_t *c, const hal_port_t *hal);
 void control_step(control_t *c);
 

@@ -44,12 +44,12 @@ int config_apply(armfw_config_t *c, uint8_t joint, uint8_t key, int32_t value, b
     joint_cfg_t *j = &c->joint[joint];
     switch (key) {
     case PROTO_CFG_OFFSET_TICKS:
-        if (torque_on) return PROTO_ERR_BAD_VALUE;
+        if (torque_on) return CFG_ERR_TORQUE_ON;
         if (value < -(CFG_TICKS_PER_REV - 1) || value > CFG_TICKS_PER_REV - 1) return PROTO_ERR_BAD_VALUE;
         j->offset_ticks = value;
         return 0;
     case PROTO_CFG_DIRECTION:
-        if (torque_on) return PROTO_ERR_BAD_VALUE;
+        if (torque_on) return CFG_ERR_TORQUE_ON;
         if (value != 1 && value != -1) return PROTO_ERR_BAD_VALUE;
         j->direction = (int8_t)value;
         return 0;
@@ -72,6 +72,18 @@ int config_apply(armfw_config_t *c, uint8_t joint, uint8_t key, int32_t value, b
     default:
         return PROTO_ERR_UNKNOWN_KEY;
     }
+}
+
+bool config_validate(const armfw_config_t *c) {
+    for (int i = 0; i < ARMFW_N_JOINTS; i++) {
+        const joint_cfg_t *j = &c->joint[i];
+        if (j->offset_ticks < -(CFG_TICKS_PER_REV - 1) || j->offset_ticks > CFG_TICKS_PER_REV - 1) return false;
+        if (j->direction != 1 && j->direction != -1) return false;
+        if (j->limit_min_mrad < -32767 || j->limit_max_mrad < -32767) return false;
+        if (j->limit_min_mrad >= j->limit_max_mrad) return false;
+        if (j->vmax_mrad_s < 1 || j->current_limit_ma < 1) return false;
+    }
+    return c->wd_hold_ms >= 1 && c->wd_hold_ms < c->wd_off_ms && c->wd_off_ms <= 60000;
 }
 
 uint16_t config_mrad_to_ticks(const joint_cfg_t *j, float mrad) {

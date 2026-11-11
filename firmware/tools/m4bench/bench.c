@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "armfw/host_link.h"
 #include "sim.h"
 
 #define SYST_CSR (*(volatile uint32_t *)0xE000E010u)
@@ -79,6 +80,45 @@ static int32_t rnd(int32_t lo, int32_t hi) {
     rng = rng * 1664525u + 1013904223u;
     return lo + (int32_t)((rng >> 8) % (uint32_t)(hi - lo + 1));
 }
+
+static void send_config(uint8_t joint, uint8_t key, int32_t value) {
+    proto_config_t m = {joint, key, value};
+    uint8_t pl[8], fr[32];
+    proto_pack_config(&m, pl);
+    static uint8_t cseq = 100;
+    size_t n = proto_encode(fr, sizeof fr, PROTO_T_CONFIG, cseq++, pl, PROTO_LEN_CONFIG);
+    sim_host_send(&g_sim, fr, n);
+}
+
+static uint32_t measure(void (*fn)(void)) {
+    uint32_t t0 = ticks();
+    fn();
+    uint32_t t1 = ticks();
+    return (uint32_t)((float)elapsed(t0, t1) * g_ins_per_tick + 0.5f);
+}
+
+static calstore_t g_cs;
+static armfw_config_t g_cfg;
+static void do_calstore_init(void) { calstore_init(&g_cs, &g_sim.flash_port, &g_cfg); }
+
+static uint8_t g_lrx[1024], g_ltx[2048];
+static host_link_t g_link;
+static uint32_t io_conn_room;
+static bool io_connected(void *c) { (void)c; return true; }
+static uint32_t io_rx_avail(void *c) { (void)c; return 0; }
+static uint32_t io_read(void *c, uint8_t *b, uint32_t n) { (void)c; (void)b; (void)n; return 0; }
+static uint32_t io_wavail(void *c) { (void)c; return io_conn_room; }
+static uint32_t io_write(void *c, const uint8_t *b, uint32_t n) {
+    (void)c; (void)b;
+    if (n > io_conn_room) n = io_conn_room;
+    io_conn_room -= n;
+    return n;
+}
+static void io_flush(void *c) { (void)c; }
+static const host_link_io_t g_io = {0, io_connected, io_rx_avail, io_read, io_wavail, io_write, io_flush};
+static uint8_t g_frame[74];
+static void do_link_write(void) { host_link_write(&g_link, g_frame, sizeof g_frame); }
+static void do_link_pump(void) { host_link_pump(&g_link, &g_io); }
 
 static void report(const char *name, uint32_t sum, uint32_t n, uint32_t mx) {
     sh_write0(name);
@@ -159,6 +199,75 @@ int main(void) {
     sh_write0("mode at end: ");
     put_u((uint32_t)g_sim.ctl.safety.mode);
     sh_write0(" (1 = ACTIVE)\n");
+
+    /* 4. wave 2 paths: calibration save driven from the control step, while a 30 Hz policy
+     * streams targets (replans every 33 steps), PINGs keep the watchdog fed. Each save is a
+     * CONFIG 0x20 frame; the store then needs one step per flash operation (erase every 21st
+     * save, 12 double-word programs, one read-back verify). */
+    {
+        uint32_t s_sum = 0, s_n = 0, s_mx = 0, cfg_mx = 0, both_mx = 0, saves = 0;
+        int16_t p2[6] = {0, 0, 0, 0, 0, 800};
+        send_targets(p2, 200);
+        for (int i = 0; i < 300; i++) step_ins();
+        uint32_t ok0 = g_sim.ctl.stats.cal_saves;
+        for (int k = 0; k < 60 * 40; k++) {
+            bool rp = k % 33 == 0, cf = k % 40 == 0;
+            if (rp) {
+                for (int j = 0; j < 6; j++) p2[j] = (int16_t)(p2[j] + rnd(-60, 60));
+                p2[5] = (int16_t)(800 + rnd(-200, 200));
+                send_targets(p2, 66);
+            }
+            if (cf) send_config(0xFF, CFG_KEY_SAVE_FLASH, CFG_COMMIT_MAGIC);
+            if (k % 50 == 7) {
+                uint8_t fr[16];
+                static uint8_t ps2 = 50;
+                sim_host_send(&g_sim, fr, proto_encode(fr, sizeof fr, PROTO_T_PING, ps2++, NULL, 0));
+            }
+            bool busy_before = calstore_busy(&g_sim.ctl.store);
+            uint32_t c = step_ins();
+            bool busy = busy_before || calstore_busy(&g_sim.ctl.store);
+            if (cf && !rp && c > cfg_mx) cfg_mx = c;
+            if (busy && !rp && !cf) { s_sum += c; s_n++; if (c > s_mx) s_mx = c; }
+            if (busy && rp && c > both_mx) both_mx = c;
+        }
+        saves = g_sim.ctl.stats.cal_saves - ok0;
+        report("step servicing a flash save (program/erase/verify)", s_sum, s_n, s_mx);
+        sh_write0("step receiving CONFIG 0x20 (save start): max ");
+        put_u(cfg_mx);
+        sh_write0(" insn; step with replan + save service: max ");
+        put_u(both_mx);
+        sh_write0(" insn; saves completed ");
+        put_u(saves);
+        sh_write0(", erases ");
+        put_u(g_sim.flash.erases[0] + g_sim.flash.erases[1]);
+        sh_write0(", mode ");
+        put_u((uint32_t)g_sim.ctl.safety.mode);
+        sh_write0("\n");
+        /* boot: scan both pages (42 slots, CRC of each non-blank one) */
+        sh_write0("boot calstore_init over two full pages: ");
+        put_u(measure(do_calstore_init));
+        sh_write0(" insn (valid records ");
+        put_u(g_cs.valid_records);
+        sh_write0(")\n");
+    }
+
+    /* 5. host link rings (USB build): ISR-side write of one STATE frame, background pump */
+    {
+        host_link_init(&g_link, g_lrx, sizeof g_lrx, g_ltx, sizeof g_ltx);
+        uint32_t wmx = 0, pmx = 0;
+        for (int k = 0; k < 500; k++) {
+            uint32_t c = measure(do_link_write);
+            if (c > wmx) wmx = c;
+            io_conn_room = (uint32_t)rnd(0, 64);
+            c = measure(do_link_pump);
+            if (c > pmx) pmx = c;
+        }
+        sh_write0("host_link_write (74 B frame): max ");
+        put_u(wmx);
+        sh_write0(" insn; host_link_pump (<= 64 B): max ");
+        put_u(pmx);
+        sh_write0(" insn\n");
+    }
     sh_exit();
     return 0;
 }

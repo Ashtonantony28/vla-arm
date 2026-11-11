@@ -6,9 +6,12 @@
  * the official header is a drop-in replacement: build with -DARMFW_USE_CMSIS and put ST's
  * headers on the include path.
  *
- * Addresses and bit positions are from RM0440 (STM32G4 reference manual) as recalled, NOT
- * machine-checked against ST's header. VERIFY EVERY LINE AGAINST RM0440 / stm32g474xx.h BEFORE
- * FLASHING. The places most worth double-checking are marked "verify".
+ * Addresses and bit positions were written from memory of RM0440. Since wave 2 they are
+ * machine-checked: tools/check_regs.py (also a ctest case) compiles every #define, peripheral
+ * base, struct offset and IRQ number here against ST's stm32g474xx.h v1.2.6 + CMSIS-Core 5.9.0
+ * (third_party/) and reports differences: 171 match, 0 differ. Not checkable that way (ST keeps
+ * them in the HAL/LL headers): the DMAMUX request IDs below - verify against RM0440 table 91.
+ * New target code (ADC, flash, USB) uses ST's header directly.
  */
 #ifndef STM32G4_MIN_H
 #define STM32G4_MIN_H

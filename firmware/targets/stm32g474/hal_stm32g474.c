@@ -13,8 +13,8 @@
  *    back to RX and re-enables the receiver; replies land by DMA1 ch4 (circular) in a ring that
  *    servo_read() drains on the next control step.
  *  - E-stop: PB12 level + EXTI12 falling edge latch, so even a sub-millisecond opening is seen.
- *  - ADC: sketched. bus_mv/bus_ma return the last values written by an ADC DMA sequence that is
- *    left as TODO (INA240 gain and divider ratio depend on the final schematic).
+ *  - ADC: adc_stm32g4.c (raw codes; scaling in the core). Calibration flash: flash_stm32g4.c.
+ *  - Host link: USB CDC (usb_cdc_glue.c) when ARMFW_HOST_LINK_USB is defined, else LPUART1.
  */
 #include <string.h>
 
@@ -35,8 +35,13 @@ static uint8_t s_servo_rx[BOARD_SERVO_RX_RING];
 static uint32_t s_servo_rx_tail;
 
 static volatile uint8_t s_estop_tripped;
-static volatile uint16_t s_bus_mv = 12000; /* TODO: from ADC DMA */
-static volatile int16_t s_bus_ma = 0;     /* TODO: from ADC DMA */
+
+/* other target modules (built against ST's CMSIS header) */
+void adc_stm32_init(void);
+bool adc_stm32_read(adc_raw_t *out);
+const flash_port_t *flash_stm32_port(void);
+size_t usb_host_read(uint8_t *buf, size_t cap);
+size_t usb_host_write(const uint8_t *buf, size_t n);
 
 /* ---------------- helpers ---------------- */
 static void gpio_mode(GPIO_TypeDef *g, unsigned pin, unsigned mode, unsigned af) {
@@ -112,8 +117,7 @@ void hal_stm32_init(void) {
     USART1->CR1 = USART_CR1_TE | USART_CR1_RE | USART_CR1_UE;
     nvic_enable(USART1_IRQn, 2);
 
-    /* TODO ADC1: injected or regular sequence IN1 (INA240), IN2 (Vbus divider) triggered by
-     * TIM6 TRGO, DMA into s_bus_ma / s_bus_mv after scaling. */
+    adc_stm32_init();
 }
 
 /* TIM6: 1 kHz update interrupt drives control_step (see main.c). */
@@ -148,12 +152,18 @@ static size_t ring_read(const uint8_t *ring, uint32_t size, uint32_t *tail, uint
 
 static size_t h_host_read(void *ctx, uint8_t *buf, size_t cap) {
     (void)ctx;
+#ifdef ARMFW_HOST_LINK_USB
+    return usb_host_read(buf, cap);
+#endif
     /* if the producer laps the consumer (>1 KB in one ms) bytes are lost; the parser resyncs */
     return ring_read(s_host_rx, BOARD_HOST_RX_RING, &s_host_rx_tail, DMA1->CH[0].CNDTR, buf, cap);
 }
 
 static size_t h_host_write(void *ctx, const uint8_t *buf, size_t n) {
     (void)ctx;
+#ifdef ARMFW_HOST_LINK_USB
+    return usb_host_write(buf, n);
+#endif
     size_t room = BOARD_HOST_TX_BUF - s_host_tx_len;
     if (n > room) return 0; /* whole frames only */
     memcpy(&s_host_tx_stage[s_host_tx_len], buf, n);
@@ -224,17 +234,12 @@ static bool h_estop_closed(void *ctx) {
     return closed;
 }
 
-static uint16_t h_bus_mv(void *ctx) {
+static bool h_adc_read(void *ctx, adc_raw_t *out) {
     (void)ctx;
-    return s_bus_mv;
+    return adc_stm32_read(out);
 }
 
-static int16_t h_bus_ma(void *ctx) {
-    (void)ctx;
-    return s_bus_ma;
-}
-
-const hal_port_t g_hal_stm32 = {
+hal_port_t g_hal_stm32 = {
     .ctx = 0,
     .time_us = h_time_us,
     .host_read = h_host_read,
@@ -242,6 +247,8 @@ const hal_port_t g_hal_stm32 = {
     .servo_txrx = h_servo_txrx,
     .servo_read = h_servo_read,
     .estop_loop_closed = h_estop_closed,
-    .bus_mv = h_bus_mv,
-    .bus_ma = h_bus_ma,
+    .adc_read = h_adc_read,
+    .flash = 0, /* set by hal_stm32_init_flash() before control_init */
 };
+
+void hal_stm32_init_flash(void) { g_hal_stm32.flash = flash_stm32_port(); }
