@@ -291,14 +291,15 @@ class CollisionModel:
         return W[:, :C], W[:, C : 2 * C], W[:, 2 * C :]
 
     # ------------------------------------------------------------------ distances
-    def clearance(self, Q, *, details: bool = False) -> Clearance:
+    def clearance(self, Q, *, details: bool = False, frames=None) -> Clearance:
         """Signed clearance (m) of the worst check for each pose in ``Q`` (B,5|6).
 
         Values below ``exact_below`` are exact; larger ones are lower bounds (bounding spheres).
-        With ``details`` every failing check is listed per pose."""
+        With ``details`` every failing check is listed per pose. ``frames`` may pass
+        precomputed :meth:`link_frames` output for ``Q``."""
         Q = np.atleast_2d(np.asarray(Q, float))
         B = Q.shape[0]
-        R, t = self.link_frames(Q)
+        R, t = self.link_frames(Q) if frames is None else frames
         A, Bp, M = self._capsules(R, t)
         C = A.shape[1]
         Af, Bf, Mf = A.reshape(-1, 3), Bp.reshape(-1, 3), M.reshape(-1, 3)

@@ -152,7 +152,7 @@ class SafetyShim:
         d = d + np.maximum(0.0, self.cfg.base_radius - np.hypot(tcp[:, 0], tcp[:, 1]))
         clear = np.full(len(Q), np.inf)
         if self.collision is not None:
-            c = self.collision.clearance(Q)
+            c = self.collision.clearance(Q, frames=(R, t))
             d = d + c.depth
             clear = c.min_clearance
         return d, clear

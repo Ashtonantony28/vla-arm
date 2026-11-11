@@ -66,35 +66,57 @@ def _deriv(c):
     return c[..., 1:] * k
 
 
+def _roots01_row(row):
+    r = row.copy()
+    scale = np.max(np.abs(r))
+    if scale == 0:
+        return np.empty(0)
+    while len(r) > 1 and abs(r[-1]) <= 1e-7 * scale:
+        r = r[:-1]
+    if len(r) <= 1:
+        return np.empty(0)
+    if len(r) == 2:
+        rt = np.array([-r[0] / r[1]])
+    elif len(r) == 3:
+        a, b, k = r[2], r[1], r[0]
+        disc = b * b - 4 * a * k
+        if disc < 0:
+            return np.empty(0)
+        sq = np.sqrt(disc)
+        q = -0.5 * (b + (sq if b >= 0 else -sq))
+        rt = np.array([q / a, k / q]) if q != 0 else np.array([0.0])
+    else:
+        rt = np.roots(r[::-1])
+        rt = rt[np.abs(rt.imag) < 1e-9].real
+    return rt[(rt > 0.0) & (rt < 1.0)]
+
+
 def _roots01(c):
-    """Real roots in (0,1) of each row of ascending coefficient array c (n, deg+1); list of arrays."""
-    out = []
-    for row in c:
-        r = row.copy()
-        scale = np.max(np.abs(r))
-        if scale == 0:
-            out.append(np.empty(0))
-            continue
-        while len(r) > 1 and abs(r[-1]) <= 1e-7 * scale:
-            r = r[:-1]
-        if len(r) <= 1:
-            out.append(np.empty(0))
-            continue
-        if len(r) == 2:
-            rt = np.array([-r[0] / r[1]])
-        elif len(r) == 3:
-            a, b, k = r[2], r[1], r[0]
-            disc = b * b - 4 * a * k
-            if disc < 0:
-                out.append(np.empty(0))
-                continue
-            sq = np.sqrt(disc)
-            q = -0.5 * (b + (sq if b >= 0 else -sq))
-            rt = np.array([q / a, k / q]) if q != 0 else np.array([0.0])
-        else:
-            rt = np.roots(r[::-1])
+    """Real roots in (0,1) of each row of ascending coefficient array c (n, deg+1); list of arrays.
+
+    Rows of full degree go through one batched companion-matrix eigvals call (what np.roots does
+    per row); degenerate rows (tiny leading coefficient) take the per-row path."""
+    c = np.asarray(c, float)
+    n, m = c.shape
+    deg = m - 1
+    out = [None] * n
+    scale = np.max(np.abs(c), axis=1)
+    full = (scale > 0) & (np.abs(c[:, -1]) > 1e-7 * scale)
+    if deg >= 3 and np.any(full):
+        idx = np.nonzero(full)[0]
+        cf = c[idx]
+        comp = np.zeros((len(idx), deg, deg))
+        comp[:, 0, :] = -cf[:, -2::-1] / cf[:, -1:]
+        if deg > 1:
+            comp[:, np.arange(1, deg), np.arange(deg - 1)] = 1.0
+        ev = np.linalg.eigvals(comp)
+        for k, j in enumerate(idx):
+            rt = ev[k]
             rt = rt[np.abs(rt.imag) < 1e-9].real
-        out.append(rt[(rt > 0.0) & (rt < 1.0)])
+            out[j] = rt[(rt > 0.0) & (rt < 1.0)]
+    for j in range(n):
+        if out[j] is None:
+            out[j] = _roots01_row(c[j])
     return out
 
 
@@ -169,12 +191,13 @@ class FirmwareTrajectory:
         self.elapsed_us = 0
         self.moving = False
         self.saturated = False
+        self._may_saturate = False
 
     def freeze(self) -> None:
         self.reset(self.cmd_p)
 
     def copy(self) -> "FirmwareTrajectory":
-        c = FirmwareTrajectory(self.lim_min, self.lim_max, self.vmax)
+        c = object.__new__(type(self))
         c.__dict__.update({k: (v.copy() if isinstance(v, np.ndarray) else v) for k, v in self.__dict__.items()})
         return c
 
@@ -284,6 +307,9 @@ class FirmwareTrajectory:
         res.stretched = T > T0 * 1.000001
         lo, hi = quintic_pos_range(self.b, self.pf)
         res.overshoot = bool(np.any(lo < self.lim_min - 0.01) or np.any(hi > self.lim_max + 0.01))
+        # step() == eval() exactly unless a limit can be touched (quintic range, or a blend cubic,
+        # whose range is not computed): advance() uses that to skip the per-ms stepping
+        self._may_saturate = bool(np.any(lo < self.lim_min) or np.any(hi > self.lim_max) or np.any(self.tau > 0))
         self.elapsed_us = 0
         self.moving = True
         return res
@@ -330,7 +356,9 @@ class FirmwareTrajectory:
                 self.cmd_v, self.cmd_a = np.zeros(N), np.zeros(N)
                 self.moving = False
             return
-        if n > 50:  # long gap inside a move: evaluate directly (saturation is not emulated)
+        if n > 50 or not self._may_saturate:
+            # no limit contact possible (or a long gap: saturation is then not emulated): the
+            # stepped state equals the direct evaluation at the final step
             self.elapsed_us += (n - 1) * CONTROL_PERIOD_US
             n = 1
         for _ in range(n):
@@ -352,6 +380,7 @@ class FirmwareTrajectory:
             self.cmd_v[j] = 0.0
             self.cmd_a[j] = 0.0
             self.saturated = True
+            self._may_saturate = True
             if self.moving:
                 pf = self.pf[j]
                 rem = self.t0[j] + self.T[j] - t
