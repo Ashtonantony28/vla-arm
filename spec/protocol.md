@@ -104,7 +104,7 @@ Full reasoning: `armctl/README.md` and `firmware/README.md`.
 2. **Watchdog** runs only while torque is on. Any valid host frame feeds it, including one that is NACKed. Any valid frame ends HOLD; the arm keeps the frozen setpoint until a new SET_TARGETS.
 3. **Leaving FAULT:** after CLEAR_FAULT clears every latched bit, mode stays FAULT with `fault_flags == 0` until a SET_TARGETS: torque on → ACTIVE, torque off → IDLE. CLEAR_FAULT is always ACKed; bits whose condition persists (e.g. hardware e-stop loop still open) stay set.
 4. **Torque off is never refused.** A torque-off SET_TARGETS with an invalid field is NACKed but torque still goes off.
-5. **NACK 4 (rejected)** is also used for: torque-enable before every servo has been read once after boot (~6 ms), and calibration CONFIG keys (offset, direction) while torque is on. Hosts retry torque-enable only in the boot case (`fault_flags == 0`, mode IDLE).
+5. **NACK 4 (rejected)** is also used for torque-enable before every servo has been read once after boot (~6 ms); hosts retry torque-enable only in that case (`fault_flags == 0`, mode IDLE). Calibration CONFIG keys (offset, direction) sent while torque is on get **NACK 2** (corrected 2026-11-11 to match firmware and the integration test).
 6. **BUS_UNDERVOLT** is a live, non-latching flag with no mode effect.
 7. **Calibration formula:** `q_rad = direction * (ticks - 2048 - offset_ticks) * 2π / 4096`.
 8. **`cmd_pos_crc`** covers the current trajectory setpoint (not the final target).
