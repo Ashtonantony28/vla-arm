@@ -71,8 +71,31 @@ static size_t h_servo_read(void *ctx, uint8_t *buf, size_t cap) {
 }
 
 static bool h_estop(void *ctx) { return ((sim_t *)ctx)->estop_closed; }
-static uint16_t h_bus_mv(void *ctx) { return sim_bus_mv((sim_t *)ctx); }
-static int16_t h_bus_ma(void *ctx) { return sim_bus_ma((sim_t *)ctx); }
+
+void sim_adc_codes(sim_t *s, adc_raw_t *out) {
+    analog_params_t p;
+    analog_default_params(&p);
+    memset(out, 0, sizeof(*out));
+    out->vservo = analog_code_for_bus_mv(&p, sim_bus_mv(s), p.vdda_nominal_mv);
+    out->isense = analog_code_for_bus_ma(&p, sim_bus_ma(s), p.vdda_nominal_mv);
+    uint32_t vin_mv = (uint32_t)armfw_clampi((int32_t)(s->supply_v * 1000.0f + 0.5f), 0, 65535);
+    out->vin = analog_code_for_bus_mv(&p, vin_mv, p.vdda_nominal_mv);
+    if (s->board_temp_c != s->ntc_cache_c || s->ntc_cache_code == 0) { /* bisection: cache it */
+        s->ntc_cache_c = s->board_temp_c;
+        s->ntc_cache_code = analog_code_for_temp_c(&p, s->board_temp_c);
+    }
+    out->ntc = s->ntc_cache_code;
+}
+
+static bool h_adc_read(void *ctx, adc_raw_t *out) {
+    sim_t *s = (sim_t *)ctx;
+    if (s->adc_dead) return false;
+    if (s->adc_override)
+        *out = s->adc_raw;
+    else
+        sim_adc_codes(s, out);
+    return true;
+}
 
 int16_t sim_bus_ma(const sim_t *s) {
     if (!s->estop_closed) return 0; /* the hardware loop cuts servo power */
@@ -89,13 +112,13 @@ uint16_t sim_bus_mv(const sim_t *s) {
 
 /* ---------------- sim ---------------- */
 
-void sim_init(sim_t *s, uint32_t start_us) {
-    memset(s, 0, sizeof(*s));
+static void sim_start(sim_t *s, uint32_t start_us) {
     s->now_us = start_us;
     s->estop_closed = true;
     s->supply_v = 12.0f;
     s->wiring_ohm = 0.05f;
     s->rng = 0x12345678u;
+    s->board_temp_c = 30.0f;
     fifo_init(&s->host_in, SIM_HOST_IN_CAP);
     fifo_init(&s->host_out, SIM_HOST_OUT_CAP);
     sb_parser_init(&s->bus_parser);
@@ -111,9 +134,25 @@ void sim_init(sim_t *s, uint32_t start_us) {
     s->hal.servo_txrx = h_servo_txrx;
     s->hal.servo_read = h_servo_read;
     s->hal.estop_loop_closed = h_estop;
-    s->hal.bus_mv = h_bus_mv;
-    s->hal.bus_ma = h_bus_ma;
+    s->hal.adc_read = h_adc_read;
+    fake_flash_port(&s->flash, &s->flash_port);
+    s->hal.flash = &s->flash_port;
     control_init(&s->ctl, &s->hal);
+}
+
+void sim_init(sim_t *s, uint32_t start_us) {
+    memset(s, 0, sizeof(*s));
+    fake_flash_init(&s->flash);
+    sim_start(s, start_us);
+}
+
+void sim_reboot(sim_t *s, uint32_t start_us) {
+    /* zero everything except the flash contents */
+    size_t a = offsetof(sim_t, flash), b = a + sizeof(s->flash);
+    memset(s, 0, a);
+    memset((uint8_t *)s + b, 0, sizeof(*s) - b);
+    fake_flash_power_on(&s->flash);
+    sim_start(s, start_us);
 }
 
 void sim_step(sim_t *s) {

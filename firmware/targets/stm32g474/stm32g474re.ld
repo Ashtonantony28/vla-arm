@@ -4,7 +4,8 @@ ENTRY(Reset_Handler)
 
 MEMORY
 {
-  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 512K
+  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 508K   /* last 4 KB: calibration store */
+  CALIB (r)   : ORIGIN = 0x0807F000, LENGTH = 4K     /* bank 2 pages 126-127 (flash_stm32g4.c) */
   RAM   (rwx) : ORIGIN = 0x20000000, LENGTH = 96K
   CCMRAM (rw) : ORIGIN = 0x10000000, LENGTH = 32K
 }

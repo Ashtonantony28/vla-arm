@@ -14,21 +14,25 @@ static void send_frame(control_t *c, uint8_t type, const uint8_t *payload, size_
     if (w != n) c->stats.host_tx_dropped++;
 }
 
-static void send_ack(control_t *c, const proto_frame_t *f) {
-    proto_ack_t a = {f->seq, f->type};
+static void send_ack_to(control_t *c, uint8_t seq, uint8_t type) {
+    proto_ack_t a = {seq, type};
     uint8_t pl[PROTO_LEN_ACK];
     proto_pack_ack(&a, pl);
     send_frame(c, PROTO_T_ACK, pl, sizeof pl);
     c->stats.acks++;
 }
 
-static void send_nack(control_t *c, const proto_frame_t *f, int err) {
-    proto_nack_t a = {f->seq, f->type, (uint8_t)err};
+static void send_ack(control_t *c, const proto_frame_t *f) { send_ack_to(c, f->seq, f->type); }
+
+static void send_nack_to(control_t *c, uint8_t seq, uint8_t type, int err) {
+    proto_nack_t a = {seq, type, (uint8_t)err};
     uint8_t pl[PROTO_LEN_NACK];
     proto_pack_nack(&a, pl);
     send_frame(c, PROTO_T_NACK, pl, sizeof pl);
     c->stats.nacks++;
 }
+
+static void send_nack(control_t *c, const proto_frame_t *f, int err) { send_nack_to(c, f->seq, f->type, err); }
 
 static void reply(control_t *c, const proto_frame_t *f, int err) {
     if (err)
@@ -105,6 +109,29 @@ static int handle_set_targets(control_t *c, const proto_frame_t *f) {
     return 0;
 }
 
+/* CONFIG 0x20 (save to flash) / 0x21 (restore defaults): proposed additions, see config.h. */
+static void handle_config_commit(control_t *c, const proto_frame_t *f, const proto_config_t *m) {
+    if (m->joint != PROTO_CFG_JOINT_GLOBAL || m->value != CFG_COMMIT_MAGIC) {
+        send_nack(c, f, PROTO_ERR_BAD_VALUE);
+        return;
+    }
+    if (m->key == CFG_KEY_RESTORE_DEFAULTS) {
+        if (safety_torque_on(&c->safety)) {
+            send_nack(c, f, CFG_ERR_TORQUE_ON);
+            return;
+        }
+        config_defaults(&c->cfg);
+        send_ack(c, f);
+        return;
+    }
+    if (c->save_pending || calstore_save_start(&c->store, &c->cfg) != 0) {
+        send_nack(c, f, PROTO_ERR_FAULTED); /* no flash, or a save is still running */
+        return;
+    }
+    c->save_pending = true; /* ACK/NACK when the record is written and verified */
+    c->save_seq = f->seq;
+}
+
 static void handle_frame(control_t *c, const proto_frame_t *f) {
     uint32_t now = c->hal->time_us(c->hal->ctx);
     c->stats.host_frames++;
@@ -133,6 +160,10 @@ static void handle_frame(control_t *c, const proto_frame_t *f) {
     case PROTO_T_CONFIG: {
         proto_config_t m;
         proto_unpack_config(f->payload, f->len, &m);
+        if (m.key == CFG_KEY_SAVE_FLASH || m.key == CFG_KEY_RESTORE_DEFAULTS) {
+            handle_config_commit(c, f, &m);
+            break;
+        }
         reply(c, f, config_apply(&c->cfg, m.joint, m.key, m.value, safety_torque_on(&c->safety)));
         break;
     }
@@ -265,8 +296,8 @@ void control_fill_state(const control_t *c, proto_state_t *st) {
         if (m->servo_error) s |= JS_SERVO_ERROR;
         js->status = s;
     }
-    st->bus_mv = c->hal->bus_mv(c->hal->ctx);
-    st->bus_ma = c->hal->bus_ma(c->hal->ctx);
+    st->bus_mv = c->analog.bus_mv;
+    st->bus_ma = c->analog.bus_ma;
     st->loop_jitter_max_us = c->jitter_max_us;
     st->loop_overruns = c->overruns;
     st->cmd_pos_crc = control_cmd_pos_crc(c);
@@ -287,7 +318,10 @@ static void send_state(control_t *c) {
 void control_init(control_t *c, const hal_port_t *hal) {
     memset(c, 0, sizeof(*c));
     c->hal = hal;
-    config_defaults(&c->cfg);
+    c->cal_from_flash = calstore_init(&c->store, hal->flash, &c->cfg); /* defaults if none */
+    analog_params_t ap;
+    analog_default_params(&ap);
+    analog_init(&c->analog, &ap);
     uint32_t now = hal->time_us(hal->ctx);
     safety_init(&c->safety, now);
     proto_parser_init(&c->host_parser);
@@ -341,8 +375,14 @@ void control_step(control_t *c) {
     memset(&in, 0, sizeof in);
     in.now_us = now;
     in.estop_loop_closed = h->estop_loop_closed(h->ctx);
-    in.bus_mv = h->bus_mv(h->ctx);
-    in.bus_ma = h->bus_ma(h->ctx);
+    {
+        adc_raw_t raw;
+        analog_update(&c->analog, h->adc_read(h->ctx, &raw) ? &raw : NULL);
+    }
+    in.bus_mv = c->analog.bus_mv;
+    in.bus_ma = c->analog.bus_ma;
+    in.board_temp_dc = c->analog.board_temp_dc;
+    in.board_temp_valid = c->analog.valid && c->analog.ntc_ok;
     for (int j = 0; j < ARMFW_N_JOINTS; j++) {
         in.fresh[j] = c->fresh[j];
         in.current_ma[j] = c->meas[j].current_ma;
@@ -380,6 +420,20 @@ void control_step(control_t *c) {
         if (c->stream_accum_us >= c->stream_period_us) {
             c->stream_accum_us -= c->stream_period_us;
             send_state(c);
+        }
+    }
+
+    /* 7. calibration flash: at most one flash operation start/poll per step */
+    {
+        int ev = calstore_service(&c->store);
+        if (ev > 0) c->stats.cal_saves++;
+        if (ev < 0) c->stats.cal_save_failures++;
+        if (ev != 0 && c->save_pending) {
+            c->save_pending = false;
+            if (ev > 0)
+                send_ack_to(c, c->save_seq, PROTO_T_CONFIG);
+            else
+                send_nack_to(c, c->save_seq, PROTO_T_CONFIG, PROTO_ERR_FAULTED);
         }
     }
 
