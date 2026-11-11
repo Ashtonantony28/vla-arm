@@ -13,20 +13,23 @@ LANG_KEY = "observation.environment_state"
 POLICY_KINDS = ("act", "act_lang", "diffusion")
 
 
-def robot_policy_features(meta_features: dict, lang_dim: int | None = None):
+def robot_policy_features(meta_features: dict, lang_dim: int | None = None, state_dim: int | None = None):
     from lerobot.configs.types import FeatureType, PolicyFeature
     from lerobot.utils.feature_utils import dataset_to_policy_features
 
     feats = dataset_to_policy_features(meta_features)
     inputs = {k: v for k, v in feats.items() if v.type is not FeatureType.ACTION}
     outputs = {k: v for k, v in feats.items() if v.type is FeatureType.ACTION}
+    if state_dim:  # derived state (e.g. joints + EE position, policies/state.py)
+        inputs["observation.state"] = PolicyFeature(type=FeatureType.STATE, shape=(state_dim,))
     if lang_dim:
         inputs[LANG_KEY] = PolicyFeature(type=FeatureType.ENV, shape=(lang_dim,))
     return inputs, outputs
 
 
 def make_config(kind: str, meta_features: dict, image_size: int, lang_dim: int | None = None,
-                size: str = "small", chunk_size: int = 50, temporal_ensemble: float | None = 0.01):
+                size: str = "small", chunk_size: int = 50, temporal_ensemble: float | None = 0.01,
+                state_dim: int | None = None, lr: float | None = None):
     """size="small" is the CPU-trainable variant used for the pipeline proof; "paper" restores the
     ACT paper/LeRobot defaults (dim 512, ffn 3200) for GPU training on real data.
 
@@ -38,7 +41,7 @@ def make_config(kind: str, meta_features: dict, image_size: int, lang_dim: int |
 
     if kind not in POLICY_KINDS:
         raise ValueError(f"kind must be one of {POLICY_KINDS}")
-    inputs, outputs = robot_policy_features(meta_features, lang_dim if kind == "act_lang" else None)
+    inputs, outputs = robot_policy_features(meta_features, lang_dim if kind == "act_lang" else None, state_dim)
     if kind in ("act", "act_lang"):
         from lerobot.policies.act.configuration_act import ACTConfig
 
@@ -50,7 +53,7 @@ def make_config(kind: str, meta_features: dict, image_size: int, lang_dim: int |
             n_action_steps=1 if temporal_ensemble is not None else chunk_size,
             temporal_ensemble_coeff=temporal_ensemble,
             pretrained_backbone_weights=None,
-            optimizer_lr=1e-4, optimizer_lr_backbone=1e-4,
+            optimizer_lr=lr or 1e-4, optimizer_lr_backbone=lr or 1e-4,
             normalization_mapping={"VISUAL": NormalizationMode.MEAN_STD, "STATE": NormalizationMode.MEAN_STD,
                                    "ACTION": NormalizationMode.MEAN_STD, "ENV": NormalizationMode.IDENTITY},
             **dims,
@@ -65,20 +68,24 @@ def make_config(kind: str, meta_features: dict, image_size: int, lang_dim: int |
             n_obs_steps=2, horizon=16, n_action_steps=8,
             crop_shape=(crop, crop), pretrained_backbone_weights=None, use_group_norm=True,
             noise_scheduler_type="DDIM", num_train_timesteps=100, num_inference_steps=10,
+            **({"optimizer_lr": lr} if lr else {}),
             **extra,
         )
     return cfg
 
 
-def make_policy(cfg, dataset_stats: dict):
-    """Policy + LeRobot pre/post processors (normalisation lives in the processors in LeRobot 0.7)."""
+def make_policy(cfg, dataset_stats: dict, backbone: dict | None = None):
+    """Policy + LeRobot pre/post processors (normalisation lives in the processors in LeRobot 0.7).
+    backbone: optional from-scratch encoder spec, e.g. {"name": "small_cnn", "stride": 16}
+    (policies/backbones.py); None keeps LeRobot's ResNet-18."""
+    from policies.backbones import apply_backbone
     from lerobot.policies.factory import make_pre_post_processors
 
     if cfg.type == "act":
         from lerobot.policies.act.modeling_act import ACTPolicy as P
     else:
         from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy as P
-    policy = P(cfg)
+    policy = apply_backbone(P(cfg), backbone)
     pre, post = make_pre_post_processors(cfg, dataset_stats=dataset_stats)
     return policy, pre, post
 
