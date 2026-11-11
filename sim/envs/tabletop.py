@@ -24,6 +24,7 @@ import mujoco
 import numpy as np
 
 from sim.envs import tasks as T
+from sim.envs.randomization import DomainRandomizer, resolve as resolve_dr
 from sim.kinematics import TopDownIK
 from sim.model.build_mjcf import BLOCK_HALF, CUP_HALF_H, PARK_X
 from sim.spec import ACTION_NAMES, load_spec
@@ -39,7 +40,10 @@ class TabletopEnv(gym.Env):
 
     def __init__(self, task: str = "pick_place", image_size: int | tuple[int, int] = 224,
                  cameras=CAMERAS, render_images: bool = True, max_steps: int | None = None,
-                 instruction_split: str = "train", seed: int | None = None):
+                 instruction_split: str = "train", seed: int | None = None, randomize=None):
+        """randomize: None/"none" (nominal scene), "visual" (lighting, colours, camera jitter),
+        "default" (visual + action noise), True (= "default"), a dict of DRConfig overrides, or a
+        DRConfig. See sim/envs/randomization.py."""
         if task not in T.TASKS:
             raise ValueError(f"unknown task {task}; options {list(T.TASKS)}")
         self.task_name = task
@@ -57,6 +61,10 @@ class TabletopEnv(gym.Env):
         self._grip_gear = 1.0 / self.spec.finger_travel_per_rad
         self._renderer = None
         self._rng = np.random.default_rng(seed)
+        self.dr_config = resolve_dr(randomize)
+        self._dr = DomainRandomizer(self.model, self.dr_config) if self.dr_config is not None else None
+        self._seed_dr_streams(seed)
+        self.dr_params: dict = {}
 
         m = self.model
         self._arm_qadr = np.array([m.joint(n).qposadr[0] for n in ACTION_NAMES[:5]])
@@ -82,9 +90,15 @@ class TabletopEnv(gym.Env):
         q = self.ik.solve(HOME_TCP, jaw_angle=math.pi / 2)
         return np.concatenate([q, [1.2]])
 
+    def _seed_dr_streams(self, seed):
+        # separate streams: the layout/instruction stream (self._rng) is identical with or without DR
+        self._dr_rng = np.random.default_rng(None if seed is None else [seed, 0xD12])
+        self._act_rng = np.random.default_rng(None if seed is None else [seed, 0xAC7])
+
     def reset(self, seed: int | None = None, options: dict | None = None):
         if seed is not None:
             self._rng = np.random.default_rng(seed)
+            self._seed_dr_streams(seed)
         rng = self._rng
         m, d = self.model, self.data
         mujoco.mj_resetData(m, d)
@@ -112,6 +126,7 @@ class TabletopEnv(gym.Env):
         d.qpos[self._finger_qadr] = d.qpos[self._finger_r_qadr] = q0[5] / self._grip_gear
         d.ctrl[:] = q0
         self._target = q0.copy()
+        self.dr_params = self._dr.apply(self._dr_rng) if self._dr is not None else {}
         mujoco.mj_forward(m, d)
         for _ in range(60):  # 0.1 s settle
             mujoco.mj_step(m, d)
@@ -119,7 +134,10 @@ class TabletopEnv(gym.Env):
         return self._obs(), self._info()
 
     def step(self, action):
-        a = np.clip(np.asarray(action, dtype=np.float64).reshape(6), self.lo, self.hi)
+        a = np.asarray(action, dtype=np.float64).reshape(6).copy()
+        if self.dr_config is not None and self.dr_config.action_noise > 0:
+            a[:5] += self._act_rng.normal(0.0, self.dr_config.action_noise, 5)
+        a = np.clip(a, self.lo, self.hi)
         m, d = self.model, self.data
         start = d.ctrl.copy()
         dt = m.opt.timestep

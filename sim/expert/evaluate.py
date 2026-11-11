@@ -1,6 +1,7 @@
 """Success rate of the scripted experts.
 
     python -m sim.expert.evaluate --episodes 100            # all tasks, no rendering
+    python -m sim.expert.evaluate --episodes 100 --randomize default   # with action noise / DR
 """
 from __future__ import annotations
 
@@ -14,8 +15,8 @@ from sim.expert.scripted import run_episode
 from sim.metrics import fmt_rate, wilson_interval
 
 
-def evaluate(task: str, episodes: int, seed0: int = 0, noise: bool = True) -> dict:
-    env = TabletopEnv(task, render_images=False)
+def evaluate(task: str, episodes: int, seed0: int = 0, noise: bool = True, randomize=None) -> dict:
+    env = TabletopEnv(task, render_images=False, randomize=randomize)
     ok, lengths, failed = 0, [], []
     t0 = time.time()
     for s in range(seed0, seed0 + episodes):
@@ -36,10 +37,11 @@ def main(argv=None):
     ap.add_argument("--episodes", type=int, default=100)
     ap.add_argument("--seed0", type=int, default=0)
     ap.add_argument("--no-noise", action="store_true")
+    ap.add_argument("--randomize", default="none", help="domain randomisation preset: none|visual|default")
     args = ap.parse_args(argv)
     results = []
     for t in args.tasks:
-        r = evaluate(t, args.episodes, args.seed0, noise=not args.no_noise)
+        r = evaluate(t, args.episodes, args.seed0, noise=not args.no_noise, randomize=args.randomize)
         results.append(r)
         print(f"{t:11s} {fmt_rate(r['successes'], r['episodes'])}  mean {r['mean_steps']:.0f} steps"
               f"  failed seeds {r['failed_seeds'][:10]}")
