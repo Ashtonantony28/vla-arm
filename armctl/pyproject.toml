@@ -20,6 +20,9 @@ armctl-teleop = "armctl.cli:teleop_main"
 [tool.setuptools]
 packages = ["armctl"]
 
+[tool.setuptools.package-data]
+armctl = ["data/*.yaml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
