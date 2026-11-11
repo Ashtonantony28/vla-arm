@@ -387,7 +387,7 @@ class ArmClient:
             if self.safety.last is None or not self._torque_on:
                 # starting from limp: velocity-limit relative to where the arm actually is
                 self.safety.reset(self.positions())
-            report = self.safety.filter(q, move_ms / 1000.0)
+            report = self.safety.filter(q, move_ms / 1000.0, now=time.monotonic())
             if report.rejected:
                 raise SafetyRejected(report)
             if report.modified:
