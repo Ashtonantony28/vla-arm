@@ -72,8 +72,9 @@ class FailureTracker:
 
     def __init__(self, env: TabletopEnv):
         self.env = env
-        self.target = "red_block"
-        self.others = [] if env.task_name == "sort" else ["blue_block"]  # sort: both are targets
+        sort = env.task_name == "sort"  # sort: both blocks are targets, nearest one counts
+        self.targets = ["red_block", "blue_block"] if sort else ["red_block"]
+        self.others = [] if sort else ["blue_block"]
         self.lifted_target = self.lifted_other = False
         self.first_grasp_offset = None
 
@@ -81,9 +82,9 @@ class FailureTracker:
         env = self.env
         tcp = env.tcp_pos()
         if self.first_grasp_offset is None and action[5] < 0.6 and tcp[2] < 0.05:
-            p, _ = env.object_pose(self.target)
-            self.first_grasp_offset = float(np.hypot(*(tcp[:2] - p[:2])) * 1000)
-        if env.object_pose(self.target)[0][2] > self.LIFT_Z:
+            self.first_grasp_offset = min(float(np.hypot(*(tcp[:2] - env.object_pose(t)[0][:2]))) * 1000
+                                          for t in self.targets)
+        if any(env.object_pose(t)[0][2] > self.LIFT_Z for t in self.targets):
             self.lifted_target = True
         for o in self.others:
             if env.object_pose(o)[0][2] > self.LIFT_Z and not self.lifted_target:

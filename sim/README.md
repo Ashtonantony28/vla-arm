@@ -142,6 +142,19 @@ Recorded on the build machine into `outputs/datasets/` (gitignored), 96×96:
 | vla_arm_sim_stack | 30 | 5 332 | 10.1 MB | 4.1 min |
 | vla_arm_sim_sort | 30 | 11 014 | 25.1 MB | 10.3 min |
 
+Wave 2, domain-randomised (`--randomize default`), into `outputs/wave2/datasets/` (times are with
+3 recorders sharing the CPU; EGL uses llvmpipe software rendering here, ~1.1 cores per recorder):
+
+| dataset | episodes (seeds) | frames | size | time |
+|---|---|---|---|---|
+| vla_arm_sim_pick_place_dr_a | 50 (0–49) | 8 899 | 17.3 MB | 15.7 min |
+| vla_arm_sim_pick_place_dr_b | 50 (1000–1049) | 8 899 | 17.1 MB | 15.8 min |
+| vla_arm_sim_pick_place_dr_val | 10 (950000–) | 1 800 | 3.5 MB | 3.0 min |
+| vla_arm_sim_pick_place_val (nominal) | 10 (950000–) | 1 799 | 3.9 MB | 3.1 min |
+| vla_arm_sim_sort_dr | 100 (0–99) | 36 648 | 76.6 MB | 65.8 min |
+
+(`vla_arm_sim_pick_place_dr` in that folder is an aborted, unfinalised recording; ignore it.)
+
 ## Tests
 
 ```bash

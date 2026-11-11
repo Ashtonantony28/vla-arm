@@ -2,6 +2,8 @@
 # Wave-2 experiment queue 1 (results in policies/RESULTS.md): one variable at a time on 100
 # domain-randomised pick_place demos. Training uses 2 threads, one run at a time; each finished run
 # is evaluated in the background (1 thread) while the next one trains.
+# As run, only E1 and E2 completed: after E2 scored 0/20 the queue and its E3 (SmallCNN + EE) were
+# stopped and wave2_queue2.sh continued on the ResNet-18 branch; E4 here never ran.
 # Usage: policies/scripts/wave2_queue1.sh   (from the repo root; W= output root)
 set -u
 REPO=$(cd "$(dirname "$0")/../.." && pwd)

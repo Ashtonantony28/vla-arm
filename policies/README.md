@@ -9,11 +9,17 @@ path, a text encoder for the language variant, and the sim eval. Environment set
 
 | file | what |
 |---|---|
-| `factory.py` | `make_config(kind, features, image_size, ...)` for `act`, `act_lang`, `diffusion`; `make_policy` → policy + pre/post processors |
-| `data.py` | `ChunkDataset`: reads LeRobot datasets once (video decode), keeps frames in RAM, returns samples windowed by the policy's own `action_delta_indices` / `observation_delta_indices` (+ `action_is_pad`), optional ±4 px random-shift augmentation |
+| `factory.py` | `make_config(kind, features, image_size, ...)` for `act`, `act_lang`, `diffusion` (sizes `tiny` / `small` / `paper`); `make_policy` → policy + pre/post processors, optional custom backbone |
+| `backbones.py` | `SmallCNN` (GroupNorm ResNet-style, stride 8/16) and `apply_backbone`, which swaps it into a LeRobot ACT / DP without forking; the spec is saved in the checkpoint meta |
+| `state.py` | `state_mode`: `joints` (6) or `joints_ee` (joints + TCP xyz from FK, 9) |
+| `data.py` | `ChunkDataset`: reads LeRobot datasets once (video decode), keeps frames in RAM, returns samples windowed by the policy's own `action_delta_indices` / `observation_delta_indices` (+ `action_is_pad`), ±N px shift and colour-jitter augmentation (shared across an observation window), derived-state stats |
 | `text_encoder.py` | frozen instruction encoders: MiniLM-L6 (real) or hashed bag-of-words (**stub**) |
-| `train.py` | training entry point |
-| `eval_sim.py` | roll a checkpoint out in `sim.envs.TabletopEnv`, success with Wilson 95% CI |
+| `train.py` | training entry point (`--backbone`, `--state-mode`, `--color-jitter`, `--val-datasets`, `--init-checkpoint`, `--threads` default 2) |
+| `eval_sim.py` | roll a checkpoint out in `sim.envs.TabletopEnv` (optionally domain-randomised), success with Wilson 95% CI, PLAN 6.6 failure categories, first-grasp xy offset, sort colour-mapping counts; strict weight loading |
+| `diagnose.py` | open-loop first-action error of a checkpoint on training vs held-out expert episodes |
+| `run_experiment.py` | train + eval → one row of a results JSONL; `scripts/wave2_queue*.sh` are the wave-2 runs |
+
+Wave-2 experiments and conclusions: **[RESULTS.md](RESULTS.md)**.
 
 ## Train
 
@@ -86,13 +92,37 @@ scratch, not a pipeline bug. Levers in rough order: ImageNet-pretrained backbone
 (PLAN: 50/task), more steps / GPU, image-size 128+, lighting/texture randomisation.
 Checkpoint: `outputs/train/act_pick_place/pretrained_model`; eval JSON + videos in `outputs/eval/`.
 
+## Wave 2 (details in [RESULTS.md](RESULTS.md))
+
+100 domain-randomised pick_place demos; eval on the same 20 held-out layouts **with** domain
+randomisation (unseen lighting / colours / camera poses + action noise), 2 CPU threads, no
+pretrained weights:
+
+| run | success, 20 seeds | 40 seeds |
+|---|---|---|
+| E1 ACT, wave-1 recipe on the new data (3 000 steps, 38 min) | 2/20 = 10 % (3–30 %) | 5/40 = 12.5 % |
+| E2 ACT + SmallCNN instead of ResNet-18 | 0/20 | – |
+| E3 ACT + EE position in state | 1/20 = 5 % | – |
+| E4 ACT tiny transformer, same budget (4 244 steps) | 5/20 = 25 % | 7/40 = 17.5 % |
+| **E5 ACT, E1 trained 2× (6 000 steps, 2×37 min)** | **5/20 = 25 % (11–47 %)** | **10/40 = 25 % (14–40 %)** |
+| DP1 / DP2 Diffusion Policy, 40 / 80 min | 0/20 / 0/20 | – |
+| L1 ACT + hashed-BoW (stub) language, `sort`, seen / held-out paraphrases | 0/20 / 0/20 | – |
+
+Best recipe: ACT small, random-init ResNet-18, 100 DR demos, ≥ 6 000 steps. The levers that
+mattered were more (randomised) data and more optimisation; the from-scratch SmallCNN, EE state and
+open-loop chunk execution did not help at this budget, and DP needs far more steps than CPU allows.
+Nominal-scene eval: E1 4/20, E5 5/20 (wave 1: 0/20).
+
 ## Real vs stubbed
 
 * Real: LeRobot ACT / Diffusion implementations, processors, optimizer presets, LeRobot v3.0
-  datasets, checkpoints loadable with `ACTPolicy.from_pretrained`.
+  datasets, checkpoints loadable with `ACTPolicy.from_pretrained` (except those with a custom
+  `backbone` in `vla_arm_meta.json` — use `policies.eval_sim.load_policy`, which re-applies it and
+  loads strictly; LeRobot's `from_pretrained` loads with `strict=False` and would silently skip the
+  mismatched weights).
 * Stubbed / limited: text encoder (hashed BoW unless MiniLM can be downloaded); vision backbones
   start from **random init** (ImageNet weights come from download.pytorch.org, which is blocked
   here — on the real data set `pretrained_backbone_weights="ResNet18_Weights.IMAGENET1K_V1"` in
   `factory.py`); "small" model sizes and few-thousand-step runs are for CPU only.
 * Not yet: SmolVLA fine-tuning (LeRobot 0.7 ships `smolvla`; needs the HF checkpoint + a GPU),
-  ONNX/TensorRT export, DP and ACT-lang training runs beyond the smoke tests.
+  ONNX/TensorRT export, DP and ACT-lang runs long enough to succeed (wave-2 CPU runs: 0/20 each).
