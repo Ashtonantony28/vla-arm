@@ -1,0 +1,85 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  firmware:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - name: host build + tests
+        run: |
+          cmake -S firmware -B firmware/build -DCMAKE_BUILD_TYPE=Debug
+          cmake --build firmware/build -j4
+          ctest --test-dir firmware/build --output-on-failure
+      - name: ASan + UBSan
+        run: |
+          cmake -S firmware -B firmware/build-asan -DARMFW_SANITIZE=ON
+          cmake --build firmware/build-asan -j4
+          ctest --test-dir firmware/build-asan --output-on-failure
+      - name: Cortex-M4 cross build
+        run: |
+          cmake -S firmware/targets/stm32g474 -B firmware/build-arm -DCMAKE_TOOLCHAIN_FILE=$PWD/firmware/cmake/arm-none-eabi.cmake
+          cmake --build firmware/build-arm -j4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fw_sim
+          path: firmware/build/fw_sim
+
+  armctl:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: pip install -e "armctl[test]"
+      - run: cd armctl && python -m pytest
+
+  integration:
+    needs: [firmware]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - uses: actions/download-artifact@v4
+        with: { name: fw_sim, path: firmware/build }
+      - run: chmod +x firmware/build/fw_sim
+      - run: pip install -e "armctl[test]"
+      - run: python -m pytest -q tests/integration
+
+  hardware:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: pip install -r hardware/requirements.txt
+      - run: python -m pytest -q hardware/tests
+
+  sim:
+    runs-on: ubuntu-24.04
+    env:
+      MUJOCO_GL: egl
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libegl1 libegl-mesa0 libgl1-mesa-dri ffmpeg
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - name: install (CPU torch)
+        run: |
+          pip install torch==2.15.0 torchvision==0.29.2 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r sim/requirements.txt
+      - name: MJCF is up to date with spec
+        run: python -m sim.model.build_mjcf --check
+      - run: python -m pytest -q sim/tests policies/tests

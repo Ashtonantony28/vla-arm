@@ -1,0 +1,92 @@
+# armctl collision model: capsules per moving link + static primitives for the base.
+# Units: metres. Generated 2026-11-11 from the CAD of commit a0f7726 (hardware/cad, "spec v1.1").
+#
+# WHERE THE NUMBERS COME FROM
+# * Capsule segments were laid out by hand from hardware/cad/params.py (part dimensions) and
+#   per-link slices of the CAD point clouds; radii were FITTED, not guessed:
+#     cd hardware && PYTHONPATH=. <hardware venv>/bin/python ../armctl/tools/dump_cad_links.py links.npz
+#     python armctl/tools/fit_capsules.py links.npz
+#   dump_cad_links.py tessellates every item of hardware/cad/assembly.items() (printed parts,
+#   STS3215 placeholder cases + horns, yaw bearing) in its link frame; fit_capsules.py assigns each
+#   point to a capsule and takes the maximum distance, rounded UP to 0.1 mm. Every CAD point of a
+#   link lies inside the union of that link's capsules (0 outside, checked by the script), so the
+#   model is conservative w.r.t. the CAD (bounded over-approximation: ~2 mm on the clevis plates,
+#   up to ~10 mm at box corners of the gripper body and shoulder bracket).
+# * Static primitives are the base part's own construction (hardware/cad/parts.py: base(),
+#   params BASE_PLATE 140x120x6, CLAMP_TAB y_out 95 / x_half 20 / t 8, ribs, BASE_R 42.5,
+#   BASE_TOP 39.5) and the turntable (TURNTABLE_R 36, TURNTABLE_T 6 above the 40 mm yaw horn face).
+#   All 5365 base CAD points are inside them.
+# * The servo envelope in the CAD is an APPROXIMATION (hardware/README.md); refit when it changes.
+#
+# FRAMES: each link's capsules are in that link's joint frame as built by spec/kinematics.yaml
+# (frame origin on the joint axis, x along the link at zero pose). gripper = wrist_roll frame.
+# jaw_a / jaw_b = gripper frame shifted by +/- jaw_shift_per_rad * q_gripper along y
+# (rack-and-pinion: PINION_R = 18.75 mm per rad, 30 mm per jaw at 1.60 rad).
+# Static primitives are in the world/base frame (z = 0 is the table / base-plate underside).
+
+jaw_shift_per_rad: 0.01875
+
+links:
+  shoulder:   # bracket above the turntable: pedestal + shoulder cradle, counterbalance post
+    - {name: ped_n, p0: [-0.0129, -0.00275, 0.02], p1: [-0.0129, -0.00275, 0.062], r: 0.0276}
+    - {name: ped_p, p0: [0.0129, -0.00275, 0.02], p1: [0.0129, -0.00275, 0.062], r: 0.0276}
+    - {name: post, p0: [0.0, 0.03, 0.012], p1: [0.0, 0.03, 0.102], r: 0.0141}
+  upper_arm:  # R26 clevis disc at shoulder, 2 side plates z+-14 (hollow between), bridge, neck, elbow cradle
+    - {name: disc, p0: [0.0, -0.026, 0.0], p1: [0.0, 0.023, 0.0], r: 0.0261}
+    - {name: plate0, p0: [0.014, -0.024, 0.0], p1: [0.108, -0.024, 0.0], r: 0.0142}
+    - {name: plate1, p0: [0.014, 0.021, 0.0], p1: [0.108, 0.021, 0.0], r: 0.0142}
+    - {name: bridge, p0: [0.115, -0.026, 0.0], p1: [0.115, 0.023, 0.0], r: 0.0157}
+    - {name: cb_pin, p0: [0.07, 0.029, 0.0], p1: [0.07, 0.029, 0.0], r: 0.0073}
+    - {name: neck0, p0: [0.126, -0.01525, 0.0], p1: [0.168, -0.01525, 0.0], r: 0.0127}
+    - {name: neck1, p0: [0.126, -0.00275, 0.0], p1: [0.168, -0.00275, 0.0], r: 0.0127}
+    - {name: neck2, p0: [0.126, 0.00975, 0.0], p1: [0.168, 0.00975, 0.0], r: 0.0127}
+    - {name: cradle0, p0: [0.182, -0.027, 0.0], p1: [0.182, 0.016, 0.0], r: 0.0180}
+    - {name: cradle1, p0: [0.2, -0.027, 0.0], p1: [0.2, 0.016, 0.0], r: 0.0178}
+    - {name: cradle2, p0: [0.218, -0.027, 0.0], p1: [0.218, 0.016, 0.0], r: 0.0177}
+  forearm:    # R26 clevis disc at elbow, 2 side plates z+-13, bridge, neck, wrist-pitch cradle
+    - {name: disc, p0: [0.0, -0.026, 0.0], p1: [0.0, 0.023, 0.0], r: 0.0261}
+    - {name: plate0, p0: [0.014, -0.024, 0.0], p1: [0.126, -0.024, 0.0], r: 0.0132}
+    - {name: plate1, p0: [0.014, 0.021, 0.0], p1: [0.126, 0.021, 0.0], r: 0.0132}
+    - {name: bridge, p0: [0.133, -0.026, 0.0], p1: [0.133, 0.023, 0.0], r: 0.0160}
+    - {name: neck, p0: [0.14, -0.005, 0.0], p1: [0.15, -0.005, 0.0], r: 0.0150}
+    - {name: cradle0, p0: [0.162, -0.027, 0.0], p1: [0.162, 0.016, 0.0], r: 0.0188}
+    - {name: cradle1, p0: [0.18, -0.027, 0.0], p1: [0.18, 0.016, 0.0], r: 0.0178}
+    - {name: cradle2, p0: [0.198, -0.027, 0.0], p1: [0.198, 0.016, 0.0], r: 0.0177}
+  wrist:      # R26 clevis disc at wrist pitch, 2 side plates z+-16, front plate + roll horn
+    - {name: disc, p0: [0.0, -0.026, 0.0], p1: [0.0, 0.023, 0.0], r: 0.0261}
+    - {name: side0, p0: [0.02, -0.024, 0.0], p1: [0.04, -0.024, 0.0], r: 0.0162}
+    - {name: side1, p0: [0.02, 0.021, 0.0], p1: [0.04, 0.021, 0.0], r: 0.0162}
+    - {name: front, p0: [0.0425, -0.026, 0.0], p1: [0.0425, 0.023, 0.0], r: 0.0162}
+  gripper:    # roll + gripper servo stack, rack guides, gripper horn/pinion, wrist camera mount
+    - {name: sleeve0, p0: [0.0205, -0.018, -0.0055], p1: [0.0205, 0.018, -0.0055], r: 0.0213}
+    - {name: sleeve1, p0: [0.0205, -0.018, 0.0135], p1: [0.0205, 0.018, 0.0135], r: 0.0213}
+    - {name: sleeve2, p0: [0.0205, -0.018, 0.0326], p1: [0.0205, 0.018, 0.0326], r: 0.0213}
+    - {name: guide0, p0: [0.0435, -0.034, -0.006], p1: [0.0435, 0.034, -0.006], r: 0.0122}
+    - {name: guide1, p0: [0.0435, -0.034, 0.012], p1: [0.0435, 0.034, 0.012], r: 0.0121}
+    - {name: guide2, p0: [0.0435, -0.034, 0.03], p1: [0.0435, 0.034, 0.03], r: 0.0121}
+    - {name: guide3, p0: [0.0435, -0.034, 0.048], p1: [0.0435, 0.034, 0.048], r: 0.0124}
+    - {name: camera0, p0: [0.02, -0.01, 0.0507], p1: [0.02, 0.01, 0.0507], r: 0.0181}
+    - {name: camera1, p0: [0.02, -0.01, 0.0677], p1: [0.02, 0.01, 0.0677], r: 0.0183}
+  jaw_a:      # +y finger (x 49.8..78, z -12..10 incl. TPU pad; capsules along z) and its lower rack
+    - {name: finger0, p0: [0.0568, 0.004, -0.006], p1: [0.0568, 0.004, 0.004], r: 0.0102}
+    - {name: finger1, p0: [0.071, 0.004, -0.006], p1: [0.071, 0.004, 0.004], r: 0.0101}
+    - {name: rack, p0: [0.045, -0.03, 0.004], p1: [0.045, 0.004, 0.004], r: 0.0085}
+  jaw_b:      # -y finger (tall: z -12..53.8, carries the upper rack)
+    - {name: finger0, p0: [0.0568, -0.004, -0.006], p1: [0.0568, -0.004, 0.048], r: 0.0101}
+    - {name: finger1, p0: [0.071, -0.004, -0.006], p1: [0.071, -0.004, 0.048], r: 0.0101}
+    - {name: rack, p0: [0.045, -0.004, 0.05], p1: [0.045, 0.03, 0.05], r: 0.0084}
+static:       # world frame; `link` decides which moving links are adjacent (skipped)
+  - {name: plate, link: base, box: {lo: [-0.070, -0.060, 0.0], hi: [0.070, 0.060, 0.006]}}
+  - {name: tab_p, link: base, box: {lo: [-0.020, 0.059, 0.0], hi: [0.020, 0.095, 0.008]}}
+  - {name: tab_n, link: base, box: {lo: [-0.020, -0.095, 0.0], hi: [0.020, -0.059, 0.008]}}
+  - {name: rib_p, link: base, box: {lo: [-0.002, 0.03825, 0.008], hi: [0.002, 0.078, 0.018]}}
+  - {name: rib_n, link: base, box: {lo: [-0.002, -0.078, 0.008], hi: [0.002, -0.03825, 0.018]}}
+  - {name: housing, link: base, zcyl: {xy: [0.0, 0.0], r: 0.0425, z: [0.0, 0.0395]}}
+  # The turntable is on the yaw link but is a cylinder about the yaw axis: same solid at any yaw.
+  - {name: turntable, link: shoulder, zcyl: {xy: [0.0, 0.0], r: 0.036, z: [0.040, 0.046]}}
+
+# Kinematic tree used for adjacency (parent of each moving link). Adjacent pairs are not
+# checked (their clearance is guaranteed by the joint limits: hardware/cad/out/cad_report.md,
+# "adjacent-pair free range"); jaw_a/jaw_b are not checked against each other (pads touch at 0).
+parent: {shoulder: base, upper_arm: shoulder, forearm: upper_arm, wrist: forearm,
+         gripper: wrist, jaw_a: gripper, jaw_b: gripper}

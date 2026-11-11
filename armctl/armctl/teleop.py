@@ -85,7 +85,7 @@ class TeleopLoop:
             self.stats.stale_leader += 1
             return None  # follower keeps its last target; heartbeat keeps it out of HOLD
         q_cmd = self.mapping(lst.positions_rad)
-        rep = self.safety.filter(q_cmd, self.move_ms / 1000.0)
+        rep = self.safety.filter(q_cmd, self.move_ms / 1000.0, now=time.monotonic())
         if rep.rejected:
             self.stats.safety_rejected += 1
             self.stats.last_reasons = rep.reasons

@@ -6,8 +6,13 @@ host frames in, quintic trajectories, servo SYNC_WRITE out, round-robin feedback
 state machine, STATE frames out.
 
 No hardware exists yet. All of the logic lives in a portable C11 core with no HAL calls, no
-`malloc` and no libm. It is built and tested on Linux against simulated servos. It also
-cross-compiles for the Cortex-M4F target with `-Werror`.
+`malloc` and no libm. It is built and tested on Linux against simulated servos, a simulated ADC
+and a fault-injecting fake flash. It also cross-compiles for the Cortex-M4F target with
+`-Werror`, with the host link on USB CDC (TinyUSB) by default.
+
+Wave 2 added: the board ADC path (rail voltage, INA240 current, NTC) feeding the safety rules,
+calibration persisted in flash (A/B pages, power-loss safe), the USB CDC host link, and a
+machine check of the target's register definitions against ST's CMSIS header.
 
 ## Layout
 
@@ -17,17 +22,24 @@ firmware/
     common.h              fixed-size helpers, LE access, N = 6
     crc16.h  proto.h      CRC-16/CCITT-FALSE; frames, streaming parser, pack/unpack of every message
     config.h              per-joint calibration + limits (defaults = spec/kinematics.yaml), CONFIG keys
+    analog.h              ADC scaling (dividers, INA240, VREFINT), IIR filters, NTC Beta model
+    calstore.h            calibration flash store: A/B page log, CRC-32, incremental save
+    host_link.h           lock-free SPSC byte rings between the control ISR and USB CDC
     traj.h                quintic trajectories, replanning, vmax stretching, blend fallback
     safety.h              IDLE/ACTIVE/HOLD/FAULT, fault flags, watchdog tiers, fault checks
     servo_bus.h           Feetech STS/SCS packets, status parser, feedback decode, read scheduler
     control.h             the 1 kHz step tying everything together
-    hal_port.h            the HAL interface a target implements (9 functions)
-  core/src/             implementation (≈ 1.4 k lines)
-  sim/                  fake servo model + fake HAL + virtual-time simulator (sim_t)
+    hal_port.h            the HAL interface a target implements (8 functions + optional flash port)
+  core/src/             implementation (≈ 2.0 k lines)
+  sim/                  fake servo model, fake flash (fault injection), fake HAL + ADC, simulator
   lib/armfw_api.[ch]    libarmfw.so: stable C API (framing, CRC, payloads, in-process sim)
   tools/fw_sim.c        CLI: firmware + sim, host frames on stdin, board frames on stdout
   tools/m4bench/        instruction-count benchmark of control_step on a Cortex-M4 model (QEMU)
-  targets/stm32g474/    target layer: startup, clocks, linker script, register-level HAL, main
+  tools/check_regs.py   checks targets/stm32g474/stm32g4_min.h against ST's CMSIS header
+  targets/stm32g474/    target layer: startup, clocks, linker script, register-level HAL, main,
+                        adc_stm32g4.c, flash_stm32g4.c, usb_cdc_glue.c + usb_descriptors.c
+  third_party/          TinyUSB 0.21.0, ST cmsis_device_g4 v1.2.6, CMSIS-Core 5.9.0 (trimmed,
+                        licences kept; fetch.sh re-creates them from the pinned tags)
   cmake/arm-none-eabi.cmake  cross toolchain file
   tests/                tt.h (vendored minimal test framework), unit + closed-loop + timing tests
 ```
@@ -47,19 +59,35 @@ cmake --build firmware/build-asan -j && (cd firmware/build-asan && ctest -j)
 cmake -S firmware/targets/stm32g474 -B firmware/build-arm \
       -DCMAKE_TOOLCHAIN_FILE=$PWD/firmware/cmake/arm-none-eabi.cmake
 cmake --build firmware/build-arm      # prints flash/RAM usage; .elf, .bin, .map in build-arm/
+# same with the host link on LPUART1 (NUCLEO ST-LINK VCP) instead of USB CDC
+cmake -S firmware/targets/stm32g474 -B firmware/build-arm-uart -DARMFW_HOST_LINK_USB=OFF \
+      -DCMAKE_TOOLCHAIN_FILE=$PWD/firmware/cmake/arm-none-eabi.cmake && cmake --build firmware/build-arm-uart
 
 # Cortex-M4 instruction counts per control step (needs qemu-system-arm)
 firmware/tools/m4bench/run.sh
+
+# register definitions of the target layer vs. ST's header (also the ctest case tools.check_regs)
+python3 firmware/tools/check_regs.py
 ```
 
-Results at the time of writing: **96/96 ctest cases pass**, the same 96/96 under ASan+UBSan, and
-the cross build is clean with `-Wall -Wextra -Werror` (core also `-pedantic -Wconversion`).
+Results at the time of writing: **136/136 ctest cases pass**, the same 136/136 under ASan+UBSan
+(the host-link SPSC ring test was also run under TSan, clean), and both cross builds are clean
+with `-Wall -Wextra -Werror` (core also `-pedantic -Wconversion`). The two wall-clock tests
+(`cli.fw_sim_pipe`, `timing.control_step_cost`) are marked `RUN_SERIAL`: next to CPU-heavy tests
+on a loaded 4-core machine the real-time pipe test missed its 100 ms windows now and then.
 
-| Image (MinSizeRel, arm-none-eabi-gcc 13.2) | |
-|---|---|
-| Flash | 11 936 B of 512 KB (text 11 352, vectors 472, rodata 104) |
-| RAM | 4 652 B static (`control_t` 1 136 B, host/servo DMA buffers 3.3 KB) + 4 KB reserved stack |
-| Stack | `control_step` frame 536 B; deepest path (frame → replan → extrema) about 1 KB (`-fstack-usage`) |
+| Image (MinSizeRel, arm-none-eabi-gcc 13.2) | USB CDC (default) | LPUART1 |
+|---|---|---|
+| Flash | 25 992 B of 508 KB (text 25 060, vectors 472, rodata 392, data 60) | 16 096 B |
+| RAM | 10.4 KB static + 4 KB reserved stack | 5.0 KB + 4 KB |
+
+In the USB build the static RAM breaks down as: `control_t` 1 408 B, USB rings 3 KB, TinyUSB CDC
+state 1.6 KB, and the LPUART buffers 3 KB (still allocated in the USB build).
+
+Stack: the `control_step` frame is 544 B. The deepest path (frame → replan → extrema) is about
+1 KB, and `calstore_init` uses 256 B (`-fstack-usage`).
+
+The last 4 KB of flash (bank 2 pages 126/127) are reserved for the calibration store.
 
 ### fw_sim
 
@@ -92,7 +120,7 @@ error; `int` results are 1 = ok, 0 = failure.
 | `armfw_pack_*` / `armfw_unpack_*` for `set_targets`, `config`, `clear_fault`, `set_stream`, `pong`, `ack`, `nack`, `state` | payload layout of every message; scalar arguments |
 | `size_t armfw_state_sizeof(void)` | 68; `armfw_state_t` offsets are documented in the header |
 | `armfw_sim_sizeof/init/step/time_us/host_write/host_read` | the real firmware in-process, virtual time |
-| `armfw_sim_set_estop_closed/set_supply_mv/set_servo_silent/set_servo_temp/inject_current/set_echo` | fault injection |
+| `armfw_sim_set_estop_closed/set_supply_mv/set_servo_silent/set_servo_temp/inject_current/set_echo` | fault injection (supply voltage now reaches the firmware as ADC codes) |
 | `armfw_sim_mode/faults/servo_pos_mrad` | introspection |
 
 ## What is verified on the host, and what needs hardware
@@ -113,17 +141,34 @@ error; `int` results are 1 = ok, 0 = failure.
   exactly 1000 STATE frames arrive at 5-step spacing (200 Hz). `cmd_pos_crc` is checked.
 - Half-duplex echo tolerance, jitter and overrun reporting, and servo bus bytes per cycle (34 B,
   or 54 B with the 100 ms torque refresh; ≤ 800 µs at 1 Mbps including a 50 µs turnaround).
+- (wave 2) ADC scaling over 0–24 V and 0–20 A to within 1 LSB, VREFINT correction from 3.0 to
+  3.4 V, the NTC Beta model against libm (±0.02 °C), filter noise and step response, the stale-ADC
+  path, and each threshold driven by synthetic code sequences.
+- (wave 2) The calibration store under power cuts at every byte and every erase position (see
+  "Calibration in flash"); CONFIG 0x20/0x21 end to end, with values surviving `sim_reboot`.
+- (wave 2) The USB host-link rings against a fake CDC and two real threads.
 
 **Timing.** Host cost of `control_step`: mean 0.8 µs, replan steps p50 5 µs. The host number is
 only a regression guard. The QEMU Cortex-M4 model (`tools/m4bench`) counts instructions per
 step:
 
+In wave 2, every step also scales the ADC readings and runs the NTC model.
+
 | Step kind | mean insn | max insn |
 |---|---|---|
-| idle (torque off) | 4.4 k | 9.2 k |
-| active, no new frame | 8.1 k | 13 k |
-| active + SET_TARGETS replan, 30 Hz policy | 33 k | 80 k |
-| adversarial full-range replans mid-motion | 42 k | 87 k |
+| idle (torque off) | 4.8 k | 9.5 k |
+| active, no new frame | 8.5 k | 13.2 k |
+| active + SET_TARGETS replan, 30 Hz policy | 33.6 k | 80.1 k |
+| adversarial full-range replans mid-motion | 42.4 k | 82.5 k |
+| step servicing a calibration save (erase start / program / read-back verify) | 8.6 k | 11.2 k |
+| step receiving CONFIG 0x20 (save start, blank-slot check) | | 12.0 k |
+| **replan + save service in the same step (worst case seen)** | | **84.6 k** |
+| boot `calstore_init` over two full pages (once, before the tick) | | 65.4 k |
+| `host_link_write` (74 B frame, ISR side) / `host_link_pump` (≤ 64 B) | | 147 / 173 |
+
+The sim's fake ADC and fake servos run inside the measured window, so these numbers include some
+simulator cost (the real `adc_read` is a 6-word copy). A save adds at most ~2.5 k instructions to
+a step, because the store starts or polls at most one flash operation per step.
 
 At 170 MHz, assuming cycles ≈ 1.0–1.5 × instructions, the worst replan step is about 0.5–0.8 ms,
 inside the 1 ms period but without much margin. A normal step is about 50–70 µs. The cycle count
@@ -132,16 +177,158 @@ too tight, two mitigations are prepared but not done: run the core from CCM SRAM
 `traj_replan` out of the tick ISR into the background loop.
 
 **Needs real hardware:**
-- The register-level HAL in `targets/stm32g474/`. It compiles but has never run. The register
-  addresses, DMAMUX request IDs and IRQ numbers in `stm32g4_min.h` were written from memory of
-  RM0440 because ST's CMSIS headers were not downloadable here; verify them before flashing.
+- The register-level HAL in `targets/stm32g474/`. It compiles but has never run.
+  `stm32g4_min.h` (written from memory in wave 1) is now checked by `tools/check_regs.py`
+  against ST's `stm32g474xx.h`: 171 definitions match, 0 differ. The new ADC, flash and USB code
+  uses ST's header directly. What is still from memory is listed under "Unverified register
+  details" below.
 - Clock bring-up to 170 MHz.
 - Servo bus turnaround, plus the STS3215 Return Delay register (must be set near 0).
 - The real servo sign conventions for speed, load and current.
-- The ADC (INA240 + divider), which is a TODO stub returning 12.0 V / 0 mA.
-- USB CDC, which is a stub with a TinyUSB integration plan.
+- The ADC bring-up (calibration, sampling times, oversampling) and the analog accuracy: divider
+  tolerances, INA240 offset (`isense_offset_mv` exists for a zero-current calibration), NTC
+  placement.
+- Flash programming/erase on silicon, the ECC-NMI recovery path, and real erase times.
+- USB enumeration, CRS trimming and CDC throughput.
 - The e-stop EXTI path.
 - Real loop jitter and cycle counts.
+
+## ADC path (wave 2)
+
+`hal_port.adc_read()` returns raw 12-bit codes; `core/src/analog.c` does everything else.
+
+| Signal | Pin / channel (mcu_pins.md) | Conversion |
+|---|---|---|
+| servo rail `bus_mv` | PA1 = ADC1_IN2 | divider 100k/15k: mV = code · VDDA/4095 · 115/15 (6.2 mV/LSB, 25.3 V full scale) |
+| rail current `bus_ma` | PA0 = ADC1_IN1 | INA240A2 (×50) on 3 mΩ, REF = GND: 0.15 V/A, 5.4 mA/LSB, ~22 A full scale, ≥ 0 only |
+| protected input `vin_mv` | PC1 = ADC1_IN7 | same divider (diagnostic, not in STATE) |
+| board temperature | PC0 = ADC1_IN6 | 10k pull-up to VREF+, NTC 10k B3380 to GND: R = 10k·c/(4095−c), Beta equation, `ln` without libm (error < 2e-6) |
+| VDDA | VREFINT (ADC1_IN18) | VDDA = 3.0 V · VREFINT_CAL / code (nominal 3.3 V when not supplied) |
+
+- **Target:** continuous scan, 16× hardware oversampling, DMA circular; one sequence takes about
+  0.34 ms.
+- **Filters** (per 1 kHz step): rail V and I `y += (x−y)/2`, NTC `/64` (τ ≈ 64 ms), VREFINT
+  `/16`. The first sample primes the filters.
+- **Stale ADC:** with no conversion for 10 ms the readings are invalid and
+  `bus_mv = bus_ma = 0`. That raises BUS_UNDERVOLT (a visible sensing failure) and can never trip
+  the bus overcurrent on stale data.
+- **Safety thresholds:** BUS_UNDERVOLT and the 8 A / 50 ms bus overcurrent use these values.
+  Measured with synthetic code sequences:
+  - a drop to 10.2 V sets the flag after 7–9 ms;
+  - a 3 A → 8.5 A step latches OVERCURRENT after 53 ms;
+  - 7.8 A forever, single-sample 20 A spikes and 40 ms bursts of 8.5 A do not trip.
+- **Board overtemperature** (firmware choice; the spec only defines OVERTEMP > 70 °C for servos):
+  - NTC > 85.0 °C for 1 s latches OVERTEMP;
+  - CLEAR_FAULT is refused while the board is still ≥ 80.0 °C;
+  - an open or shorted NTC (outside −40…150 °C) is reported invalid and never trips.
+
+## Calibration in flash (wave 2)
+
+`core/src/calstore.c`, driven by the control step; target driver `targets/stm32g474/flash_stm32g4.c`.
+
+- **Layout.** Two 2 KB pages (A, B), each an append-only log of 21 fixed 96-byte records. A
+  record holds: magic `ACAL`, format version 1, payload length 76, a 32-bit sequence number, the
+  payload (all per-joint calibration and limits + watchdog times), and a CRC-32 last. A record
+  counts only if magic, version, length and CRC match **and** every field passes the CONFIG range
+  checks.
+- **Boot.** Both pages are scanned and the valid record with the highest sequence wins; if there
+  is none, the built-in defaults are used. Unreadable (ECC) or garbage slots are skipped.
+- **Save.**
+  - The new record goes into the next blank slot after the newest record, in the same page.
+  - When that page is full, the other page is erased and written from slot 0.
+  - The page that holds the newest valid record is never erased or overwritten, so a power cut
+    at any moment leaves it readable.
+  - Every record is read back and compared. A failing slot is skipped and the next one tried (3
+    retries).
+  - The save is a state machine that starts or polls at most one flash operation per control
+    step: about 14 steps per save, plus about 22 ms on the silicon when a page erase is due.
+- **Wear.** One page erase per 21 saves, alternating pages: 10 k cycles ≈ 420 k saves.
+- **Tested against the fake flash** (`sim/fake_flash.c`, STM32G4 rules: program only erased
+  double words, PROGERR otherwise):
+  - a power cut at every byte offset of the save, in each of three torn-double-word behaviours:
+    partial bits, an ECC error on read, or still looking blank;
+  - five starting states for those cuts: first save ever, append, last slot of a page, first
+    page rollover, second page rollover;
+  - a torn erase at every double word of the page;
+  - an ECC error or bit rot in the newest record;
+  - PROGERR, silent corruption caught by the read-back, and a flash that never finishes;
+  - 3 000 random saves with random cuts, several in a row.
+
+  After every reboot the loaded configuration was the previous one or the new one. It was never
+  garbage, and never the defaults once something had been saved. A completed save was never
+  lost, and the next save always worked.
+
+### Proposed protocol additions (not in spec/protocol.md)
+
+Both are CONFIG messages with joint `0xFF` and value `0x5AFE`.
+
+**Key `0x20`, save to flash.** The current configuration is snapshotted and written as a new
+record.
+- ACK is sent only after the record is written and verified: about 14 ms, or about 40 ms when a
+  page erase is due.
+- NACK 4: there is no flash, a save is already running, or the write failed.
+- NACK 2: the value is not `0x5AFE`, or the joint is not `0xFF`.
+
+**Key `0x21`, restore defaults.** The RAM configuration goes back to the built-in defaults. Flash
+is not touched, so send `0x20` afterwards to persist the defaults.
+- ACK on success.
+- NACK 2 while torque is on (the same code as offset/direction), because new offsets would make
+  the arm jump.
+
+Saving is allowed with torque on. The flash work runs in the background on bank 2 while the code
+runs from bank 1, and the closed-loop test sees no overrun. Replies to frames sent after the
+`0x20` frame can arrive before its deferred ACK. An older host that never sends these keys is
+unaffected. Without them, CONFIG stays RAM-only as before.
+
+## USB CDC host link (wave 2)
+
+TinyUSB 0.21.0 (MIT) was cloned and vendored (trimmed) in `third_party/`. `usb_cdc_glue.c` and
+`usb_descriptors.c` integrate it in the target build, which is the default build.
+
+- **Descriptors.** One CDC-ACM function. VID/PID 0x1209/0x0001 is the pid.codes **test** PID;
+  replace it before boards are distributed. The serial number string comes from the 96-bit
+  unique ID.
+- **Where the code runs.** `tud_task()` and `host_link_pump()` run in the background loop, never
+  in the 1 kHz ISR. The ISR only reads and writes two lock-free SPSC rings
+  (`core/src/host_link.c`, RX 1 KB, TX 2 KB).
+- **Ring behaviour.**
+  - `host_write` takes whole frames or nothing.
+  - RX is flow-controlled: bytes that do not fit stay in TinyUSB's FIFO and the host is NAKed.
+  - TX bytes queued while no host has the port open (DTR low) are dropped, so a newly opened port
+    does not start with stale frames.
+- **Interrupts and clock.** USB IRQs (HP, LP, wakeup) have priority 3, below the control tick
+  (1). HSI48 is the 48 MHz clock, trimmed by the CRS from USB SOF.
+- **Host tests** (`tests/test_host_link.c`, fake CDC):
+  - byte-exact transport of random frame streams under random packetisation and back-pressure;
+  - a 40 kB RX burst through the 1 KB ring with no loss;
+  - whole-frame refusal when the ring is full;
+  - the disconnect discard;
+  - 4 MB through the ring with a real producer thread and a real consumer thread (also clean
+    under TSan).
+- **Bring-up option.** `-DARMFW_HOST_LINK_USB=OFF` builds the LPUART1 link for the NUCLEO.
+
+## Unverified register details
+
+`tools/check_regs.py` checks `stm32g4_min.h`, and the new modules use ST's names. Neither covers
+the items below, which were written from memory. Verify them in RM0440 / DS12288 before flashing:
+
+- DMAMUX request IDs: USART1 RX/TX = 24/25, LPUART1 RX/TX = 34/35, ADC1 = 5. ST keeps these in
+  the LL/HAL headers, not in CMSIS.
+- VREFINT_CAL is at address 0x1FFF75AA and was measured at VDDA = 3.0 V.
+- ADC clocking: `CKMODE = 11` (HCLK/4, synchronous) makes `RCC_CCIPR.ADC12SEL` irrelevant.
+- ADC sampling: VREFINT needs ≥ 4 µs, so it uses 640.5 cycles at 42.5 MHz.
+- Flash keys: 0x45670123 / 0xCDEF89AB.
+- Flash banks: with DBANK = 1, bank 2 starts at 0x08040000 with 128 pages of 2 KB. DBANK = 1 is
+  assumed to be the factory default; the driver checks `OPTR.DBANK` and disables persistence
+  otherwise.
+- Cache flush after an erase or program: DCEN/ICEN off, a DCRST/ICRST pulse, then the enables
+  restored.
+- **ECC NMI:** the driver assumes that returning from the ECCD NMI resumes the interrupted flash
+  read with garbage data, and uses this to report a torn double word as unreadable. If the part
+  re-faults instead, `flash_read` needs another strategy.
+- USB: CRS `SYNCSRC` resets to USB SOF, and PA11/PA12 need no MODER/AF setting for the USB FS PHY.
+- Pins: `hal_stm32g474.c` still follows the NUCLEO bring-up map for the servo bus, e-stop, LEDs
+  and log, not `mcu_pins.md`. Only the ADC channels and USB follow the custom board.
 
 ## Spec interpretations
 
@@ -213,7 +400,26 @@ that list). The two places that differ are marked **DIFFERS**.
     position) plus one READ of 15 bytes at 0x38 (position..current). The torque state is re-sent
     every 100 ms and on every change: torque-off before the goals, torque-on after them.
 
+24. (wave 2) BUS_UNDERVOLT is evaluated on the **servo rail** (after the e-stop/servo power
+    switch), so it is also set whenever servo power is off: e-stop open, or a dead ADC. The
+    protected input voltage is measured too (`analog.vin_mv`), but it is not in STATE.
+25. (wave 2) `bus_ma` in STATE is ≥ 0, because the INA240 is wired unidirectional (REF = GND).
+26. (wave 2) Board overtemperature reuses OVERTEMP (bit 4): > 85 °C for 1 s, as described in "ADC
+    path". `joint_status` bit 4 stays per servo.
+27. (wave 2) CONFIG keys 0x20/0x21 are firmware additions, see "Proposed protocol additions".
+
 ## Possible issues in spec/protocol.md (not edited)
+
+- **v1.1 clarification 5 says calibration CONFIG keys while torque is on get NACK 4. The firmware
+  answers NACK 2** (interpretation 16), and so does `tests/integration/test_armctl_vs_firmware.py`
+  ("NACK 2 (firmware choice)"). The firmware and the integration test agree with each other but
+  not with the spec text. `CFG_ERR_TORQUE_ON` in `config.h` switches every such reply, including
+  key 0x21, in one place. The spec and the integration test should settle on one code.
+- **The spec does not say whose temperature OVERTEMP covers.** It only gives "> 70 °C". The
+  firmware applies 70 °C to the servos and 85 °C to the board NTC.
+- **CONFIG has no persistence.** Keys 0x20/0x21 are proposed for v1.2 or v2. The spec has no way
+  to report that a CONFIG value was restored from flash at boot; the firmware tracks it
+  internally (`cal_from_flash`).
 
 - **The single-quintic replan cannot always respect vmax.** Replanning from a state with large
   acceleration a0: the a0 term of the quintic grows linearly with the duration T, so no
@@ -240,9 +446,19 @@ that list). The two places that differ are marked **DIFFERS**.
 
 ## Known gaps
 
-- The target HAL is a sketch that has never run. Register definitions are unverified (see
-  above), the ADC is a stub, USB CDC is a stub, and there is no flash-stored calibration: CONFIG
-  is RAM only and resets at boot.
+- The target HAL is a sketch that has never run. Register definitions are now checked against ST's
+  header; the items in "Unverified register details" are not. The ADC, flash and USB drivers
+  compile and link but have never run.
+- The target still uses the NUCLEO pin map for the servo bus, e-stop and LEDs; the custom board
+  differs (`board.h` note). SERVO_PWR_EN (PC6) is not driven.
+- The INA240 zero-current offset is not calibrated automatically. `isense_offset_mv` defaults to
+  0; at boot with servo power off, the reading could be captured as the offset.
+- A torn double word that reads back as still erased (marginal cells) is handled in the fake
+  flash, where the read-back verify catches it. Whether re-programming such a double word on the
+  real part is benign is unknown.
+- The LPUART buffers (3 KB) are still allocated in the USB build.
+- libarmfw.so does not yet expose the new fault injection (board temperature, dead ADC, flash
+  power cuts) or `analog`/`calstore` state. The C tests reach them through `sim_t`.
 - Real M4 cycle counts are estimated from QEMU instruction counts. The worst-case replan step
   (about 0.5–0.8 ms) needs measuring on silicon.
 - The fake servo is first-order with a simple current model. It has no backlash, gravity
