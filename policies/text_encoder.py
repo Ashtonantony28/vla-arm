@@ -1,8 +1,9 @@
 """Frozen text encoders for the language-conditioned ACT variant (PLAN 6.3).
 
 Backends:
-  * "minilm"     sentence-transformers/all-MiniLM-L6-v2 (384-d, CPU-friendly). Needs a download
-                 from huggingface.co.
+  * "minilm"     sentence-transformers/all-MiniLM-L6-v2 (384-d, CPU-friendly). Loaded from the local
+                 copy installed by `python -m policies.pretrained --minilm DIR` if present,
+                 otherwise downloaded from huggingface.co.
   * "hashed_bow" STUB: deterministic hashed bag of words + bigrams (256-d, L2-normalised). No
                  download, no semantics: paraphrases only share whatever words they share. Used
                  when the model download is impossible (as on the build machine, where
@@ -60,7 +61,11 @@ class MiniLMEncoder:
     def __init__(self):
         from sentence_transformers import SentenceTransformer  # noqa: optional dependency
 
-        self.model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2", device="cpu")
+        from policies.pretrained import minilm_local_dir
+
+        local = minilm_local_dir()
+        self.source = str(local) if local else "sentence-transformers/all-MiniLM-L6-v2"
+        self.model = SentenceTransformer(self.source, device="cpu")
 
     def encode(self, texts: list[str]) -> np.ndarray:
         return np.asarray(self.model.encode(list(texts), normalize_embeddings=True), dtype=np.float32)

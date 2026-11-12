@@ -20,14 +20,15 @@ import numpy as np
 import torch
 
 from policies.data import ChunkDataset, collate
-from policies.factory import LANG_KEY, config_summary, make_config, make_policy
+from policies.factory import LANG_KEY, config_summary, make_config, make_policy, with_imagenet_image_stats
 from policies.state import state_dim
 from policies.text_encoder import get_text_encoder
 
 
 def build(kind: str, roots: list[Path], size: str = "small", episodes=None, augment_shift: int = 4,
           text_encoder: str = "auto", chunk_size: int = 50, backbone: dict | None = None,
-          state_mode: str = "joints", color_jitter: float = 0.0, lr: float | None = None):
+          state_mode: str = "joints", color_jitter: float = 0.0, lr: float | None = None,
+          pretrained: bool = False):
     from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
 
     meta = LeRobotDatasetMetadata(repo_id=f"local/{roots[0].name}", root=roots[0])
@@ -35,10 +36,15 @@ def build(kind: str, roots: list[Path], size: str = "small", episodes=None, augm
     enc = get_text_encoder(text_encoder) if kind == "act_lang" else None
     cfg = make_config(kind, meta.features, image_size, lang_dim=enc.dim if enc else None, size=size,
                       chunk_size=chunk_size, state_dim=state_dim(state_mode) if state_mode != "joints" else None,
-                      lr=lr)
+                      lr=lr, pretrained=pretrained)
+    if pretrained and backbone is not None:
+        raise ValueError("pretrained weights exist only for LeRobot's ResNet-18 backbone")
     ds = ChunkDataset(roots, cfg.action_delta_indices, cfg.observation_delta_indices, episodes=episodes,
                       augment_shift=augment_shift, color_jitter=color_jitter, state_mode=state_mode)
-    policy, pre, post = make_policy(cfg, ds.stats(), backbone=backbone)
+    stats = ds.stats()
+    if pretrained:
+        stats = with_imagenet_image_stats(stats, ds.camera_keys)
+    policy, pre, post = make_policy(cfg, stats, backbone=backbone)
     return cfg, ds, policy, pre, post, enc
 
 
@@ -86,7 +92,7 @@ def train(kind: str, roots: list[Path], out: Path, steps: int, batch_size: int =
           num_threads: int | None = None, chunk_size: int = 50, verbose: bool = True,
           backbone: dict | None = None, state_mode: str = "joints", color_jitter: float = 0.0,
           lr: float | None = None, val_roots: list[Path] | None = None, val_every: int = 500,
-          init_checkpoint: Path | None = None) -> dict:
+          init_checkpoint: Path | None = None, pretrained: bool = False) -> dict:
     """init_checkpoint: continue from these weights (strict load; the optimizer state is not saved,
     so AdamW restarts). The architecture flags must match the checkpoint's."""
     torch.manual_seed(seed)
@@ -96,7 +102,7 @@ def train(kind: str, roots: list[Path], out: Path, steps: int, batch_size: int =
     out.mkdir(parents=True, exist_ok=True)
     t_load = time.time()
     cfg, ds, policy, pre, post, enc = build(kind, roots, size, episodes, augment_shift, text_encoder, chunk_size,
-                                            backbone, state_mode, color_jitter, lr)
+                                            backbone, state_mode, color_jitter, lr, pretrained)
     prior_steps = 0
     if init_checkpoint is not None:
         init_checkpoint = Path(init_checkpoint)
@@ -120,7 +126,7 @@ def train(kind: str, roots: list[Path], out: Path, steps: int, batch_size: int =
             "text_encoder": enc.name if enc else None, "text_encoder_is_stub": bool(enc and enc.is_stub),
             "image_size": ds.images[ds.camera_keys[0]].shape[-1], "camera_keys": ds.camera_keys,
             "n_params": n_params, "batch_size": batch_size, "seed": seed, "config": config_summary(cfg),
-            "backbone": backbone, "state_mode": state_mode, "augment_shift": augment_shift,
+            "backbone": backbone, "pretrained_backbone": pretrained, "state_mode": state_mode, "augment_shift": augment_shift,
             "color_jitter": color_jitter, "val_datasets": [str(r) for r in val_roots or []],
             "init_checkpoint": str(init_checkpoint) if init_checkpoint else None, "prior_steps": prior_steps}
     log_f = open(out / "train_log.csv", "w", newline="")
@@ -207,6 +213,8 @@ def main(argv=None):
     ap.add_argument("--val-datasets", nargs="*", type=Path, default=None)
     ap.add_argument("--val-every", type=int, default=500)
     ap.add_argument("--init-checkpoint", type=Path, default=None, help="continue from these weights")
+    ap.add_argument("--pretrained-backbone", action="store_true",
+                    help="start ResNet-18 from ImageNet weights (see policies/pretrained.py)")
     ap.add_argument("--log-every", type=int, default=25)
     ap.add_argument("--save-every", type=int, default=1000)
     a = ap.parse_args(argv)
@@ -214,7 +222,7 @@ def main(argv=None):
               a.time_limit_min, a.log_every, a.save_every, a.augment_shift, a.text_encoder, a.threads,
               a.chunk_size, backbone=backbone_spec(a.backbone, a.backbone_stride, a.backbone_width),
               state_mode=a.state_mode, color_jitter=a.color_jitter, lr=a.lr, val_roots=a.val_datasets,
-              val_every=a.val_every, init_checkpoint=a.init_checkpoint)
+              val_every=a.val_every, init_checkpoint=a.init_checkpoint, pretrained=a.pretrained_backbone)
     print(json.dumps({k: v for k, v in r.items() if k not in ("history", "config", "val_history")}, default=str))
 
 

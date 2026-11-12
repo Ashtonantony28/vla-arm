@@ -121,3 +121,54 @@ def test_small_cnn_train_save_strict_reload(tiny_ds, tmp_path, kind):
     assert any("backbone.net" in n for n, _ in policy.named_parameters())
     s = evaluate(r["checkpoint"], "pick_place", episodes=1, max_steps=5, verbose=False, randomize="default")
     assert s["episodes"] == 1 and s["per_episode"][0]["category"] in ("missed_grasp", "dropped", "wrong_object")
+
+
+# ---- wave 3: ImageNet ResNet-18 and the real MiniLM text encoder ------------------------------
+
+def _installed(kind):
+    from policies.pretrained import check
+
+    return check()[kind] is not None
+
+
+@pytest.mark.skipif(not _installed("resnet18"), reason="ImageNet ResNet-18 not installed (policies.pretrained)")
+def test_pretrained_backbone_loads_imagenet_weights(tiny_ds):
+    import torchvision
+
+    cfg, ds, policy, pre, post, enc = build("act", [tiny_ds], augment_shift=0, chunk_size=10, pretrained=True)
+    ref = torchvision.models.resnet18(weights="ResNet18_Weights.IMAGENET1K_V1").state_dict()
+    got = policy.model.backbone.state_dict()
+    assert torch.equal(got["conv1.weight"], ref["conv1.weight"])
+    assert torch.equal(got["layer4.1.bn2.running_var"], ref["layer4.1.bn2.running_var"])
+    # images are normalised with ImageNet statistics, not the dataset's
+    b = pre(collate([ds[0]]))
+    raw = ds[0][ds.camera_keys[0]]
+    expect = (raw[0] - 0.485) / 0.229
+    assert torch.allclose(b[ds.camera_keys[0]][0, 0], expect, atol=1e-5)
+
+
+def test_pretrained_rejects_custom_backbone(tiny_ds):
+    with pytest.raises(ValueError):
+        build("act", [tiny_ds], augment_shift=0, chunk_size=10, pretrained=True,
+              backbone={"name": "small_cnn", "stride": 16})
+
+
+@pytest.mark.skipif(not _installed("resnet18"), reason="ImageNet ResNet-18 not installed (policies.pretrained)")
+def test_pretrained_checkpoint_reloads_strictly(tiny_ds, tmp_path):
+    from policies.eval_sim import load_policy
+
+    r = train("act", [tiny_ds], tmp_path / "run", steps=1, batch_size=4, chunk_size=10, verbose=False,
+              pretrained=True)
+    policy, pre, post, enc, meta = load_policy(r["checkpoint"])
+    assert meta["pretrained_backbone"] is True
+
+
+@pytest.mark.skipif(not _installed("minilm"), reason="MiniLM not installed (policies.pretrained)")
+def test_minilm_has_semantics():
+    from policies.text_encoder import get_text_encoder
+
+    enc = get_text_encoder("minilm")
+    assert not enc.is_stub and enc.dim == 384
+    e = enc.encode(["put the red block in the bowl", "place the red cube inside the bowl",
+                    "stack the blue block on the green block"])
+    assert e[0] @ e[1] > e[0] @ e[2] + 0.1, "a paraphrase must be closer than a different instruction"
