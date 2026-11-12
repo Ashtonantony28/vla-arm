@@ -172,3 +172,22 @@ def test_minilm_has_semantics():
     e = enc.encode(["put the red block in the bowl", "place the red cube inside the bowl",
                     "stack the blue block on the green block"])
     assert e[0] @ e[1] > e[0] @ e[2] + 0.1, "a paraphrase must be closer than a different instruction"
+
+
+@pytest.mark.skipif(not _installed("resnet18"), reason="ImageNet ResNet-18 not installed (policies.pretrained)")
+def test_resnet18_layer3_keeps_imagenet_weights_and_reloads(tiny_ds, tmp_path):
+    import torchvision
+
+    from policies.eval_sim import load_policy
+
+    cfg, ds, policy, pre, post, enc = build("act", [tiny_ds], augment_shift=0, chunk_size=10, pretrained=True,
+                                            backbone={"name": "resnet18_layer3"}, lr_backbone=1e-5)
+    ref = torchvision.models.resnet18(weights="ResNet18_Weights.IMAGENET1K_V1").state_dict()
+    assert torch.equal(policy.model.backbone.body[6][1].conv2.weight, ref["layer3.1.conv2.weight"])
+    groups = cfg.get_optimizer_preset().build(policy.get_optim_params()).param_groups
+    assert sorted(g["lr"] for g in groups) == [1e-5, 1e-4]
+    r = train("act", [tiny_ds], tmp_path / "run", steps=1, batch_size=4, chunk_size=10, verbose=False,
+              pretrained=True, backbone={"name": "resnet18_layer3"})
+    policy2, *_ = load_policy(r["checkpoint"])  # strict load re-applies the truncation
+    x = torch.zeros(1, 3, 32, 32)
+    assert policy2.model.backbone(x)["feature_map"].shape[1] == 256

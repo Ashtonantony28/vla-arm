@@ -20,6 +20,7 @@ import numpy as np
 import torch
 
 from policies.data import ChunkDataset, collate
+from policies.backbones import RESNET18_VARIANTS
 from policies.factory import LANG_KEY, config_summary, make_config, make_policy, with_imagenet_image_stats
 from policies.state import state_dim
 from policies.text_encoder import get_text_encoder
@@ -28,7 +29,7 @@ from policies.text_encoder import get_text_encoder
 def build(kind: str, roots: list[Path], size: str = "small", episodes=None, augment_shift: int = 4,
           text_encoder: str = "auto", chunk_size: int = 50, backbone: dict | None = None,
           state_mode: str = "joints", color_jitter: float = 0.0, lr: float | None = None,
-          pretrained: bool = False):
+          pretrained: bool = False, lr_backbone: float | None = None):
     from lerobot.datasets.lerobot_dataset import LeRobotDatasetMetadata
 
     meta = LeRobotDatasetMetadata(repo_id=f"local/{roots[0].name}", root=roots[0])
@@ -36,9 +37,9 @@ def build(kind: str, roots: list[Path], size: str = "small", episodes=None, augm
     enc = get_text_encoder(text_encoder) if kind == "act_lang" else None
     cfg = make_config(kind, meta.features, image_size, lang_dim=enc.dim if enc else None, size=size,
                       chunk_size=chunk_size, state_dim=state_dim(state_mode) if state_mode != "joints" else None,
-                      lr=lr, pretrained=pretrained)
-    if pretrained and backbone is not None:
-        raise ValueError("pretrained weights exist only for LeRobot's ResNet-18 backbone")
+                      lr=lr, pretrained=pretrained, lr_backbone=lr_backbone)
+    if pretrained and backbone is not None and backbone.get("name") not in RESNET18_VARIANTS:
+        raise ValueError("pretrained weights exist only for LeRobot's ResNet-18 backbone and its variants")
     ds = ChunkDataset(roots, cfg.action_delta_indices, cfg.observation_delta_indices, episodes=episodes,
                       augment_shift=augment_shift, color_jitter=color_jitter, state_mode=state_mode)
     stats = ds.stats()
@@ -49,7 +50,11 @@ def build(kind: str, roots: list[Path], size: str = "small", episodes=None, augm
 
 
 def backbone_spec(name: str, stride: int = 16, width: int = 32) -> dict | None:
-    return None if name == "resnet18" else {"name": name, "stride": stride, "width": width}
+    if name == "resnet18":
+        return None
+    if name in RESNET18_VARIANTS:
+        return {"name": name}
+    return {"name": name, "stride": stride, "width": width}
 
 
 @torch.no_grad()
@@ -92,7 +97,8 @@ def train(kind: str, roots: list[Path], out: Path, steps: int, batch_size: int =
           num_threads: int | None = None, chunk_size: int = 50, verbose: bool = True,
           backbone: dict | None = None, state_mode: str = "joints", color_jitter: float = 0.0,
           lr: float | None = None, val_roots: list[Path] | None = None, val_every: int = 500,
-          init_checkpoint: Path | None = None, pretrained: bool = False) -> dict:
+          init_checkpoint: Path | None = None, pretrained: bool = False,
+          lr_backbone: float | None = None) -> dict:
     """init_checkpoint: continue from these weights (strict load; the optimizer state is not saved,
     so AdamW restarts). The architecture flags must match the checkpoint's."""
     torch.manual_seed(seed)
@@ -102,7 +108,8 @@ def train(kind: str, roots: list[Path], out: Path, steps: int, batch_size: int =
     out.mkdir(parents=True, exist_ok=True)
     t_load = time.time()
     cfg, ds, policy, pre, post, enc = build(kind, roots, size, episodes, augment_shift, text_encoder, chunk_size,
-                                            backbone, state_mode, color_jitter, lr, pretrained)
+                                            backbone, state_mode, color_jitter, lr, pretrained,
+                                            lr_backbone)
     prior_steps = 0
     if init_checkpoint is not None:
         init_checkpoint = Path(init_checkpoint)
@@ -126,7 +133,7 @@ def train(kind: str, roots: list[Path], out: Path, steps: int, batch_size: int =
             "text_encoder": enc.name if enc else None, "text_encoder_is_stub": bool(enc and enc.is_stub),
             "image_size": ds.images[ds.camera_keys[0]].shape[-1], "camera_keys": ds.camera_keys,
             "n_params": n_params, "batch_size": batch_size, "seed": seed, "config": config_summary(cfg),
-            "backbone": backbone, "pretrained_backbone": pretrained, "state_mode": state_mode, "augment_shift": augment_shift,
+            "backbone": backbone, "pretrained_backbone": pretrained, "lr_backbone": lr_backbone, "state_mode": state_mode, "augment_shift": augment_shift,
             "color_jitter": color_jitter, "val_datasets": [str(r) for r in val_roots or []],
             "init_checkpoint": str(init_checkpoint) if init_checkpoint else None, "prior_steps": prior_steps}
     log_f = open(out / "train_log.csv", "w", newline="")
@@ -204,7 +211,7 @@ def main(argv=None):
     ap.add_argument("--chunk-size", type=int, default=50)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--threads", type=int, default=2)
-    ap.add_argument("--backbone", choices=["resnet18", "small_cnn"], default="resnet18")
+    ap.add_argument("--backbone", choices=["resnet18", "resnet18_layer3", "small_cnn"], default="resnet18")
     ap.add_argument("--backbone-stride", type=int, default=16, choices=[8, 16])
     ap.add_argument("--backbone-width", type=int, default=32)
     ap.add_argument("--state-mode", choices=["joints", "joints_ee"], default="joints")
@@ -215,6 +222,7 @@ def main(argv=None):
     ap.add_argument("--init-checkpoint", type=Path, default=None, help="continue from these weights")
     ap.add_argument("--pretrained-backbone", action="store_true",
                     help="start ResNet-18 from ImageNet weights (see policies/pretrained.py)")
+    ap.add_argument("--lr-backbone", type=float, default=None, help="ACT backbone lr (default: --lr)")
     ap.add_argument("--log-every", type=int, default=25)
     ap.add_argument("--save-every", type=int, default=1000)
     a = ap.parse_args(argv)
@@ -222,7 +230,8 @@ def main(argv=None):
               a.time_limit_min, a.log_every, a.save_every, a.augment_shift, a.text_encoder, a.threads,
               a.chunk_size, backbone=backbone_spec(a.backbone, a.backbone_stride, a.backbone_width),
               state_mode=a.state_mode, color_jitter=a.color_jitter, lr=a.lr, val_roots=a.val_datasets,
-              val_every=a.val_every, init_checkpoint=a.init_checkpoint, pretrained=a.pretrained_backbone)
+              val_every=a.val_every, init_checkpoint=a.init_checkpoint, pretrained=a.pretrained_backbone,
+              lr_backbone=a.lr_backbone)
     print(json.dumps({k: v for k, v in r.items() if k not in ("history", "config", "val_history")}, default=str))
 
 

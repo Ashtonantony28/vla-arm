@@ -32,7 +32,8 @@ def robot_policy_features(meta_features: dict, lang_dim: int | None = None, stat
 
 def make_config(kind: str, meta_features: dict, image_size: int, lang_dim: int | None = None,
                 size: str = "small", chunk_size: int = 50, temporal_ensemble: float | None = 0.01,
-                state_dim: int | None = None, lr: float | None = None, pretrained: bool = False):
+                state_dim: int | None = None, lr: float | None = None, pretrained: bool = False,
+                lr_backbone: float | None = None):
     """size="tiny" halves the transformer width (wave 2, CPU); "small" is the CPU-trainable variant used for the pipeline proof; "paper" restores the
     ACT paper/LeRobot defaults (dim 512, ffn 3200) for GPU training on real data.
 
@@ -64,12 +65,14 @@ def make_config(kind: str, meta_features: dict, image_size: int, lang_dim: int |
             n_action_steps=1 if temporal_ensemble is not None else chunk_size,
             temporal_ensemble_coeff=temporal_ensemble,
             pretrained_backbone_weights=RESNET18_IMAGENET if pretrained else None,
-            optimizer_lr=lr or 1e-4, optimizer_lr_backbone=lr or 1e-4,
+            optimizer_lr=lr or 1e-4, optimizer_lr_backbone=lr_backbone or lr or 1e-4,
             normalization_mapping={"VISUAL": NormalizationMode.MEAN_STD, "STATE": NormalizationMode.MEAN_STD,
                                    "ACTION": NormalizationMode.MEAN_STD, "ENV": NormalizationMode.IDENTITY},
             **dims,
         )
     else:
+        if lr_backbone:
+            raise ValueError("lr_backbone is an ACT-only option")
         from lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
 
         crop = int(image_size * 0.875) // 4 * 4
@@ -108,6 +111,8 @@ def make_policy(cfg, dataset_stats: dict, backbone: dict | None = None):
     if cfg.type == "act":
         from lerobot.policies.act.modeling_act import ACTPolicy as P
     else:
+        if lr_backbone:
+            raise ValueError("lr_backbone is an ACT-only option")
         from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy as P
     policy = apply_backbone(P(cfg), backbone)
     pre, post = make_pre_post_processors(cfg, dataset_stats=dataset_stats)
