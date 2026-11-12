@@ -111,8 +111,6 @@ def make_policy(cfg, dataset_stats: dict, backbone: dict | None = None):
     if cfg.type == "act":
         from lerobot.policies.act.modeling_act import ACTPolicy as P
     else:
-        if lr_backbone:
-            raise ValueError("lr_backbone is an ACT-only option")
         from lerobot.policies.diffusion.modeling_diffusion import DiffusionPolicy as P
     policy = apply_backbone(P(cfg), backbone)
     pre, post = make_pre_post_processors(cfg, dataset_stats=dataset_stats)
