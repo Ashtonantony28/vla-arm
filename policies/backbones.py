@@ -78,11 +78,37 @@ def build_backbone(spec: dict) -> SmallCNN:
     return SmallCNN(width=int(spec.get("width", 32)), stride=int(spec.get("stride", 16)))
 
 
+RESNET18_VARIANTS = ("resnet18_layer3",)
+
+
+class _ResNetTruncated(nn.Module):
+    """LeRobot's ResNet-18 (its IntermediateLayerGetter) cut after `layer3`: output stride 16 and
+    256 channels, i.e. a 6x6 token map per camera at 96 px instead of layer4's 3x3. Keeps whatever
+    weights the layers already hold (ImageNet when built with --pretrained-backbone). Wave 3: a
+    dilated layer4 is not possible here (torchvision's BasicBlock has no dilation)."""
+
+    out_channels = 256
+
+    def __init__(self, getter: nn.Module):
+        super().__init__()
+        names = ["conv1", "bn1", "relu", "maxpool", "layer1", "layer2", "layer3"]
+        self.body = nn.Sequential(*[getattr(getter, n) for n in names])
+
+    def forward(self, x):
+        return {"feature_map": self.body(x)}
+
+
 def apply_backbone(policy, spec: dict | None):
     """Replace the vision backbone of a freshly constructed LeRobot policy (in place)."""
     if not spec or spec.get("name") in (None, "resnet18"):
         return policy
     cfg = policy.config
+    if spec["name"] == "resnet18_layer3":
+        if cfg.type != "act":
+            raise ValueError("resnet18_layer3 is implemented for ACT only")
+        policy.model.backbone = _ResNetTruncated(policy.model.backbone)
+        policy.model.encoder_img_feat_input_proj = nn.Conv2d(256, cfg.dim_model, kernel_size=1)
+        return policy
     if cfg.type == "act":
         net = build_backbone(spec)
         policy.model.backbone = _DictOut(net)

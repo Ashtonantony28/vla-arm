@@ -1,3 +1,64 @@
+# Sim imitation-learning results (CPU only)
+
+Wave 3 (ImageNet ResNet-18, real MiniLM) is the first section; wave 2 (random init) follows.
+
+## Wave 3 (2026-11-12): pretrained weights
+
+**Bottom line: at this CPU budget and 96 px, ImageNet weights did not measurably raise success.**
+Every pick_place row sits between 3/40 and 6/40, and the differences are inside the noise. The
+from-scratch control trained in the same environment scored 3/40, below wave 2's E5 (10/40) on a
+nearly identical recipe, so run-to-run variance at this budget is about as large as any effect
+we are trying to measure.
+
+Weights: download.pytorch.org and the Hugging Face file CDN were still blocked in the container
+(the HF API was reachable, the weight files were not). Both files were fetched on the user's
+computer, hash-checked and installed with `python -m policies.pretrained` (SHA-256 of
+`resnet18-f37072fd.pth` matches torchvision's `f37072fd...`). Machine: 4 CPU cores, no GPU.
+
+Protocol as wave 2: 100 DR pick_place demos (re-recorded with the same seeds), 10 DR validation
+demos, ACT small, batch 16, eval on the same 40 held-out DR layouts (seeds 900 000-900 039),
+330-step limit, Wilson 95 % CIs. "vs" = the row that differs by one variable. Pretrained runs
+normalise images with ImageNet mean/std. Commands: `policies/scripts/wave3_queue{1..5}.sh`.
+
+| run | change (vs) | steps | train min | val L1 | success /40 (95 % CI) | seeds 0-19 / 20-39 | median grasp offset |
+|---|---|---|---|---|---|---|---|
+| E5 (wave 2) | random init, 3000 + 3000 resumed | 6 000 | 73 | 0.154 | 10/40 = 25 % (14-40 %) | 5 / 5 | 9 mm |
+| **C1** | control: random init, one 6000-step run, this environment | 6 000 | 49 | 0.155 | 3/40 = 7.5 % (3-20 %) | 2 / 1 | 25 mm |
+| **P1** | ImageNet ResNet-18 (C1) | 6 000 | 48 | 0.147 | **6/40 = 15 % (7-29 %)** | 1 / 5 | 22 mm |
+| P2 | backbone lr 1e-5 instead of 1e-4 (P1) | 2 000 + 4 000¹ | 39 + ~30 | 0.150 | 3/40 = 7.5 % (3-20 %) | 0 / 3 | 43 mm |
+| P3 | ResNet cut after layer3: 6×6 tokens/camera instead of 3×3 (P1) | 2 000 + 4 000¹ | 46 + ~30 | 0.140 | 4/40 = 10 % (4-23 %) | 1 / 3 | 46 mm |
+| L2 | `sort`, act_lang + **MiniLM** + ImageNet ResNet-18 (wave-2 L1: stub encoder, random init) | 6 000 | ~65 | – | seen paraphrases 0/20 (0-16 %)² | – | – |
+
+¹ The container restarted during training; P2 and P3 resumed from their step-2000 checkpoints
+(AdamW state restarts, as in E5). The first 2000 steps ran two-at-a-time at 2.4 s/step.
+² 17 missed grasps, 3 dropped. The held-out-paraphrase half of the eval was cut off by the restart
+after 11 episodes (0/11) and was not re-run: the policy cannot do the two picks, so the colour
+mapping can't be measured yet (same conclusion as wave 2's L1).
+
+Paired comparison vs the control C1 (episodes where exactly one of the two succeeded): P1 5 vs 2,
+P2 3 vs 3, P3 4 vs 3. None is significant (McNemar exact p ≥ 0.45).
+
+What we learned:
+
+1. **Pretraining is not the bottleneck at 96 px on CPU.** P1 is directionally better than its
+   paired control (15 % vs 7.5 %) and has the lowest validation L1 of the 6000-step layer4 runs,
+   but 40 episodes cannot separate them. The failure mode is unchanged: 33-35 of 40 episodes are
+   missed grasps a couple of centimetres off the block.
+2. **Run-to-run variance is large.** C1 and E5 differ only in E5's mid-run optimizer restart and
+   thread count, yet scored 3/40 vs 10/40. Wave 2's "best recipe" number should be read as one
+   draw, not a reproducible 25 %.
+3. **A lower backbone lr (P2) and finer tokens (P3) both made grasps less precise** (median offset
+   43-46 mm vs 22 mm). P3's lower val L1 (0.140) did not translate into closed-loop success,
+   again showing open-loop L1 is a weak proxy here.
+4. The real MiniLM encoder works (paraphrases embed close together; `test_minilm_has_semantics`)
+   but cannot help until the policy can do `sort`'s two picks.
+
+What would actually move the number (not doable on this machine): a GPU and 10-50× more steps,
+several seeds per configuration, 100+ eval episodes per row, and 128-224 px images so the
+ImageNet features see the block at the scale they were trained on.
+
+---
+
 # Wave-2 results: sim imitation learning without pretrained weights (CPU only)
 
 Machine: 4 CPU cores shared with two other agents, no GPU; training used 2 threads

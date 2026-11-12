@@ -42,6 +42,10 @@ def load_policy(ckpt: str | Path):
     # Build, swap in the custom backbone if any, then load the weights *strictly* (LeRobot's
     # from_pretrained defaults to strict=False, which would silently skip mismatched weights).
     cfg = PreTrainedConfig.from_pretrained(ckpt)
+    # The checkpoint holds every weight; don't make torchvision fetch ImageNet weights only for them
+    # to be overwritten (architecture is identical: LeRobot's ResNet uses FrozenBatchNorm2d either way).
+    if hasattr(cfg, "pretrained_backbone_weights"):
+        cfg.pretrained_backbone_weights = None
     policy = apply_backbone(P(cfg), meta.get("backbone"))
     policy = P._load_as_safetensor(policy, str(ckpt / "model.safetensors"), "cpu", True)
     policy.eval()

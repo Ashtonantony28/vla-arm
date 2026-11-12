@@ -11,6 +11,9 @@ from dataclasses import asdict
 
 LANG_KEY = "observation.environment_state"
 POLICY_KINDS = ("act", "act_lang", "diffusion")
+RESNET18_IMAGENET = "ResNet18_Weights.IMAGENET1K_V1"
+IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_STD = (0.229, 0.224, 0.225)
 
 
 def robot_policy_features(meta_features: dict, lang_dim: int | None = None, state_dim: int | None = None):
@@ -29,13 +32,17 @@ def robot_policy_features(meta_features: dict, lang_dim: int | None = None, stat
 
 def make_config(kind: str, meta_features: dict, image_size: int, lang_dim: int | None = None,
                 size: str = "small", chunk_size: int = 50, temporal_ensemble: float | None = 0.01,
-                state_dim: int | None = None, lr: float | None = None):
+                state_dim: int | None = None, lr: float | None = None, pretrained: bool = False,
+                lr_backbone: float | None = None):
     """size="tiny" halves the transformer width (wave 2, CPU); "small" is the CPU-trainable variant used for the pipeline proof; "paper" restores the
     ACT paper/LeRobot defaults (dim 512, ffn 3200) for GPU training on real data.
 
-    Backbones start from random init: torchvision's ImageNet weights are fetched from
-    download.pytorch.org, which is blocked on the build machine. On a machine with access set
-    `pretrained_backbone_weights="ResNet18_Weights.IMAGENET1K_V1"` (strongly recommended).
+    pretrained=False: ResNet-18 from random init (waves 1-2). pretrained=True: torchvision's
+    ImageNet ResNet-18 (`ResNet18_Weights.IMAGENET1K_V1`). torchvision fetches it from
+    download.pytorch.org; where that host is blocked, place `resnet18-f37072fd.pth` (sha256
+    f37072fd...) in `$TORCH_HOME/hub/checkpoints/` and torchvision loads it from there
+    (`python -m policies.pretrained --check`). Note LeRobot's ResNet uses FrozenBatchNorm2d in both
+    cases, so a random-init backbone has frozen, untrained BatchNorm statistics.
     """
     from lerobot.configs.types import NormalizationMode
 
@@ -57,13 +64,15 @@ def make_config(kind: str, meta_features: dict, image_size: int, lang_dim: int |
             chunk_size=chunk_size,
             n_action_steps=1 if temporal_ensemble is not None else chunk_size,
             temporal_ensemble_coeff=temporal_ensemble,
-            pretrained_backbone_weights=None,
-            optimizer_lr=lr or 1e-4, optimizer_lr_backbone=lr or 1e-4,
+            pretrained_backbone_weights=RESNET18_IMAGENET if pretrained else None,
+            optimizer_lr=lr or 1e-4, optimizer_lr_backbone=lr_backbone or lr or 1e-4,
             normalization_mapping={"VISUAL": NormalizationMode.MEAN_STD, "STATE": NormalizationMode.MEAN_STD,
                                    "ACTION": NormalizationMode.MEAN_STD, "ENV": NormalizationMode.IDENTITY},
             **dims,
         )
     else:
+        if lr_backbone:
+            raise ValueError("lr_backbone is an ACT-only option")
         from lerobot.policies.diffusion.configuration_diffusion import DiffusionConfig
 
         crop = int(image_size * 0.875) // 4 * 4
@@ -71,12 +80,25 @@ def make_config(kind: str, meta_features: dict, image_size: int, lang_dim: int |
         cfg = DiffusionConfig(
             input_features=inputs, output_features=outputs, device="cpu",
             n_obs_steps=2, horizon=16, n_action_steps=8,
-            crop_shape=(crop, crop), pretrained_backbone_weights=None, use_group_norm=True,
+            crop_shape=(crop, crop), pretrained_backbone_weights=RESNET18_IMAGENET if pretrained else None,
+            use_group_norm=not pretrained,  # LeRobot: GroupNorm replacement is for from-scratch only
             noise_scheduler_type="DDIM", num_train_timesteps=100, num_inference_steps=10,
             **({"optimizer_lr": lr} if lr else {}),
             **extra,
         )
     return cfg
+
+
+def with_imagenet_image_stats(stats: dict, camera_keys) -> dict:
+    """Pretrained backbones expect ImageNet-normalised inputs (as LeRobot's use_imagenet_stats)."""
+    import torch
+
+    out = dict(stats)
+    for c in camera_keys:
+        out[c] = {**stats.get(c, {}),
+                  "mean": torch.tensor(IMAGENET_MEAN, dtype=torch.float32).view(3, 1, 1),
+                  "std": torch.tensor(IMAGENET_STD, dtype=torch.float32).view(3, 1, 1)}
+    return out
 
 
 def make_policy(cfg, dataset_stats: dict, backbone: dict | None = None):

@@ -54,13 +54,28 @@ input, which LeRobot's ACT projects into **one extra encoder token** — no fork
 embedding is computed per batch from the dataset's `task` string (cached per string).
 
 * `--text-encoder minilm`: `sentence-transformers/all-MiniLM-L6-v2` (384-d, runs on CPU). Needs
-  `pip install sentence-transformers` and access to huggingface.co.
+  `pip install sentence-transformers` and either access to huggingface.co or a local copy
+  installed with `python -m policies.pretrained --minilm DIR` (see below).
 * `--text-encoder hashed_bow`: **STUB** — deterministic hashed bag of words + bigrams +
   position-tagged colour words, 256-d. No semantics: a held-out paraphrase only works as far as
   it shares words with training phrasings. It exists because huggingface.co is blocked from the
   build machine.
 * `auto` (default) tries MiniLM, falls back to the stub with a warning; the checkpoint records
   which one was used, and `train_meta.json` has `text_encoder_is_stub`.
+
+## Pretrained weights (wave 3)
+
+`--pretrained-backbone` starts LeRobot's ResNet-18 from torchvision's ImageNet weights and
+normalises images with ImageNet mean/std. Where download.pytorch.org / the Hugging Face file CDN
+are blocked, fetch the files elsewhere and install them, hash-checked:
+
+```bash
+python -m policies.pretrained --resnet18 resnet18-f37072fd.pth --minilm all-MiniLM-L6-v2/
+python -m policies.pretrained --check
+```
+
+Related flags: `--lr-backbone` (ACT backbone lr), `--backbone resnet18_layer3` (ResNet-18 cut
+after layer3: 6×6 image tokens per camera at 96 px instead of 3×3; keeps the ImageNet weights).
 
 ## Evaluate in sim
 
@@ -92,6 +107,22 @@ scratch, not a pipeline bug. Levers in rough order: ImageNet-pretrained backbone
 (PLAN: 50/task), more steps / GPU, image-size 128+, lighting/texture randomisation.
 Checkpoint: `outputs/train/act_pick_place/pretrained_model`; eval JSON + videos in `outputs/eval/`.
 
+## Wave 3 (details in [RESULTS.md](RESULTS.md))
+
+Same data and 40 held-out DR layouts as wave 2, 4 CPU threads:
+
+| run | success /40 |
+|---|---|
+| C1 control: random init, 6 000 steps | 3/40 = 7.5 % |
+| **P1 ImageNet ResNet-18, 6 000 steps** | **6/40 = 15 % (7–29 %)** |
+| P2 P1 + backbone lr 1e-5 | 3/40 |
+| P3 P1 with layer3 features (6×6 tokens) | 4/40 |
+| L2 `sort`, ACT + MiniLM + ImageNet backbone, seen paraphrases | 0/20 |
+
+Pretraining did not measurably help at 96 px / CPU budgets (no difference is significant), and
+the control shows wave 2's 25 % was a favourable draw. The next lever is compute: GPU, many more
+steps, several seeds, larger images.
+
 ## Wave 2 (details in [RESULTS.md](RESULTS.md))
 
 100 domain-randomised pick_place demos; eval on the same 20 held-out layouts **with** domain
@@ -120,9 +151,8 @@ Nominal-scene eval: E1 4/20, E5 5/20 (wave 1: 0/20).
   `backbone` in `vla_arm_meta.json` — use `policies.eval_sim.load_policy`, which re-applies it and
   loads strictly; LeRobot's `from_pretrained` loads with `strict=False` and would silently skip the
   mismatched weights).
-* Stubbed / limited: text encoder (hashed BoW unless MiniLM can be downloaded); vision backbones
-  start from **random init** (ImageNet weights come from download.pytorch.org, which is blocked
-  here — on the real data set `pretrained_backbone_weights="ResNet18_Weights.IMAGENET1K_V1"` in
-  `factory.py`); "small" model sizes and few-thousand-step runs are for CPU only.
+* Stubbed / limited: the text encoder falls back to the hashed-BoW stub and the backbone to
+  random init unless the weights are installed (see "Pretrained weights"); "small" model sizes
+  and few-thousand-step runs are for CPU only.
 * Not yet: SmolVLA fine-tuning (LeRobot 0.7 ships `smolvla`; needs the HF checkpoint + a GPU),
   ONNX/TensorRT export, DP and ACT-lang runs long enough to succeed (wave-2 CPU runs: 0/20 each).
