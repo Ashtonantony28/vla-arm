@@ -28,7 +28,9 @@ def test_part_fits_print_bed(name):
 def test_min_wall_thickness(name):
     # pitch-envelope variant: gear teeth are excluded from the 2 mm rule by design
     wt = C.wall_thickness(PT.build_printed(name, teeth=False))
-    assert wt["min"] >= P.WALL_MIN - 0.01, wt
+    # TPU pads: 2 mm slab with 0.4 mm grip grooves -> 1.6 mm under a groove (flexible part, by design)
+    wmin = 1.5 if PT.PRINTED[name][2] == "TPU" else P.WALL_MIN
+    assert wt["min"] >= wmin - 0.01, wt
 
 
 def test_measured_joint_distances_match_spec():
@@ -81,7 +83,7 @@ def test_sweep_spec_limits_adjacent_clear(jn):
 
 def test_shoulder_sweep_clear_within_mechanical_range():
     lo = C.joint_limits()["shoulder_pitch"][0]
-    for q in np.linspace(lo, 0.80, 14):
+    for q in np.linspace(lo, C.joint_limits()["shoulder_pitch"][1], 14):   # spec v1.2: +0.60
         assert A.collisions({"shoulder_pitch": q}, C.moving_set("shoulder_pitch"), adjacent_only=False) == [], q
 
 
@@ -133,3 +135,46 @@ def test_counterbalance_pin_clears_post_over_full_shoulder_range():
         posed = {it.name: s for it, s in A.posed({"shoulder_pitch": q})}
         # pin B lives on the upper arm, post on the shoulder bracket: their intersection volume must be 0
         assert A.intersection_volume(posed["upper_arm"], posed["shoulder_bracket"]) < 1.0 or q > 0.80
+
+
+# ---------------------------------------------------------------- 2026-11-24 full-assembly audit
+def test_zero_pose_exact_no_overlap_with_teeth_and_fasteners():
+    """Every part pair (printed + purchased, gear teeth and screws included): no overlap > 0.001 mm3."""
+    import itertools
+    pz = A.posed({}, teeth=True)
+    bad = []
+    for (ia, sa), (ib, sb) in itertools.combinations(pz, 2):
+        v = A.intersection_volume(sa, sb)
+        if v > 1e-3:
+            bad.append((ia.name, ib.name, v))
+    assert not bad, bad
+
+
+def test_nothing_floats():
+    """Contact graph at zero pose: every part reaches the base through touching parts."""
+    from cad import audit
+    import itertools
+    pz = A.posed({}, teeth=True)
+    adj = {it.name: set() for it, _ in pz}
+    for (ia, sa), (ib, sb) in itertools.combinations(pz, 2):
+        if audit.bb_gap(sa, sb) > audit.CONTACT_TOL:
+            continue
+        d = audit.dist(sa, sb)
+        k = audit._key(ia.name, ib.name)
+        if d <= audit.CONTACT_TOL or (k in audit.SLIDING and d <= audit.SLIDE_TOL):
+            adj[ia.name].add(ib.name); adj[ib.name].add(ia.name)
+    seen, stack = {"base"}, ["base"]
+    while stack:
+        for m in adj[stack.pop()]:
+            if m not in seen:
+                seen.add(m); stack.append(m)
+    assert seen == set(adj), sorted(set(adj) - seen)
+
+
+def test_gear_mesh_backlash_over_stroke():
+    """Involute pinion vs both racks, real teeth: never overlapping, backlash gap 0.05-0.2 mm."""
+    for qg in np.linspace(0, 1.6, 6):
+        pp = {it.name: s for it, s in A.posed({"gripper": float(qg)}, teeth=True)}
+        for j in ("jaw_a", "jaw_b"):
+            assert A.intersection_volume(pp["pinion"], pp[j]) < 1e-3, (qg, j)
+            assert 0.05 <= pp["pinion"].distance(pp[j]) <= 0.2, (qg, j)

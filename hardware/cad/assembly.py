@@ -58,36 +58,45 @@ class Item:
 
 @functools.lru_cache(maxsize=2)
 def items(teeth: bool = False) -> tuple[Item, ...]:
+    """Every part of the arm, printed and purchased, each fixed to one link frame."""
     out = []
     for name, (_, link, _) in PT.PRINTED.items():
         out.append(Item(name, link, PT.build_printed(name, teeth), True))
     body, horn = PT.servo_body(), PT.servo_horn()
-    # servo cases (fixed to the link that holds them) and horns (fixed to the driven link)
+    z_floor_yaw = P.YAW_Z + P.YAW_HORN_UP - P.SERVO.stack
+    # name, case link, horn link, case mount (case-link frame), horn mount (horn-link frame),
+    # plate thickness over the horn (horn screws), case-floor thickness (case screws, None = cap-retained)
     servos = [
-        ("servo_yaw", "base", "shoulder", PT.MOUNT_YAW),
-        ("servo_shoulder", "shoulder", "upper_arm", T(0, 0, P.SHOULDER_Z) @ PT.mount_pitch(0.0)),
-        ("servo_elbow", "upper_arm", "forearm", PT.mount_pitch(P.UPPER_ARM_L)),
-        ("servo_wrist_pitch", "forearm", "wrist", PT.mount_pitch(P.FOREARM_L)),
-        # the roll servo CASE rides in the gripper; its horn is bolted to the wrist bracket
-        ("servo_roll", "gripper", "wrist", T(P.WRIST_L, 0, 0) @ PT.MOUNT_ROLL),
-        ("servo_gripper", "gripper", "grip_drive", PT.MOUNT_GRIP),
+        ("servo_yaw", "base", "shoulder", PT.MOUNT_YAW, T(0, 0, P.YAW_HORN_UP),
+         P.TURNTABLE_T - P.YAW_HORN_UP, z_floor_yaw),
+        ("servo_shoulder", "shoulder", "upper_arm", PT.mount_pitch(0.0, P.SHOULDER_Z), PT.mount_pitch(0.0),
+         P.PLATE_T, P.CAP_T),
+        ("servo_elbow", "upper_arm", "forearm", PT.mount_pitch(P.UPPER_ARM_L), PT.mount_pitch(0.0), P.PLATE_T, P.CAP_T),
+        ("servo_wrist_pitch", "forearm", "wrist", PT.mount_pitch(P.FOREARM_L), PT.mount_pitch(0.0), P.PLATE_T, P.CAP_T),
+        # the roll servo CASE rides in the gripper; its horn is bolted to the wrist bracket front plate
+        ("servo_roll", "gripper", "wrist", PT.MOUNT_ROLL, T(P.WRIST_L, 0, 0) @ PT.MOUNT_ROLL, P.WRIST_FRONT_T, None),
+        # gripper servo: horn rotates with grip_drive, whose frame coincides with gripper at q=0
+        ("servo_gripper", "gripper", "grip_drive", PT.MOUNT_GRIP, PT.MOUNT_GRIP, P.PINION_SEAT, None),
     ]
-    for name, case_link, horn_link, m in servos:
-        # mount matrices are expressed in the case link frame, except the roll servo (wrist frame)
-        if name == "servo_roll":
-            m_case = PT.MOUNT_ROLL
-            m_horn = m  # in wrist frame
-        elif name == "servo_shoulder":
-            m_case, m_horn = m, PT.mount_pitch(0.0)   # horn in upper-arm frame (axis at origin)
-        elif name in ("servo_elbow", "servo_wrist_pitch"):
-            m_case, m_horn = m, PT.mount_pitch(0.0)
-        elif name == "servo_yaw":
-            m_case, m_horn = m, np.eye(4)             # horn face = shoulder (yaw) frame origin
-        else:  # gripper servo: horn rotates with grip_drive, whose frame coincides with gripper at q=0
-            m_case, m_horn = m, m
+    for name, case_link, horn_link, m_case, m_horn, plate_t, floor_t in servos:
         out.append(Item(name + "_case", case_link, place(body, m_case), False))
         out.append(Item(name + "_horn", horn_link, place(horn, m_horn), False))
+        out.append(Item(name + "_horn_screws", horn_link, place(PT.horn_screws(plate_t), m_horn), False))
+        if floor_t is not None:
+            out.append(Item(name + "_case_screws", case_link, place(PT.case_screws(floor_t), m_case), False))
     out.append(Item("yaw_bearing", "base", PT.yaw_bearing(), False))
+    ib = PT.idler_bearing()
+    for name, link, px, pz in (("idler_bearing_shoulder", "shoulder", 0.0, P.SHOULDER_Z),
+                               ("idler_bearing_elbow", "upper_arm", P.UPPER_ARM_L, 0.0),
+                               ("idler_bearing_wrist", "forearm", P.FOREARM_L, 0.0)):
+        out.append(Item(name, link, place(ib, T(px, P.Y_IPLATE[0], pz)), False))
+    cam = PT.camera_board_frame()
+    out.append(Item("camera_board", "gripper", place(PT.camera_board(), cam), False))
+    out.append(Item("camera_screws", "gripper", place(PT.camera_screws(), cam), False))
+    out.append(Item("camera_mount_screws", "gripper", PT.cam_mount_screws(), False))
+    out.append(Item("gripper_cap_screws", "gripper", PT.gripper_cap_screws(), False))
+    out.append(Item("cb_pulley", "shoulder", PT.cb_pulley(), False))
+    out.append(Item("cb_axle", "shoulder", PT.cb_axle(), False))
     return tuple(out)
 
 

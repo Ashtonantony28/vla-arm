@@ -93,7 +93,7 @@ class CTraj:
 
 
 LIM_MIN = [-2600, -1800, -2700, -1900, -3000, 0]
-LIM_MAX = [2600, 750, 2300, 1900, 3000, 1600]
+LIM_MAX = [2600, 600, 2300, 1900, 3000, 1600]
 VMAX = [3000, 2500, 3000, 3500, 4000, 4000]
 
 
@@ -175,7 +175,7 @@ def test_saturation_and_blend_are_exercised(ctraj):
     c = CTraj(ctraj, LIM_MIN, LIM_MAX, VMAX)
     for t in (py, c):
         t.reset([0, 600, 0, 0, 0, 0])
-    tgt = [0, 750, 0, 0, 0, 0]
+    tgt = [0, 600, 0, 0, 0, 0]
     py.replan(tgt, 0.02)
     c.replan(tgt, 0.02)
     sat = False
@@ -184,8 +184,8 @@ def test_saturation_and_blend_are_exercised(ctraj):
         c.step()
         sat |= py.saturated
         assert np.allclose(c.cmd()[0], py.cmd_p, atol=0.05)
-    r = py.replan([0, 750, 0, 0, 0, 0], 0.005)
-    c.replan([0, 750, 0, 0, 0, 0], 0.005)
+    r = py.replan([0, 600, 0, 0, 0, 0], 0.005)
+    c.replan([0, 600, 0, 0, 0, 0], 0.005)
     # reversal with high acceleration -> blend path
     py.reset([0, 0, 0, 0, 0, 0])
     c.reset([0, 0, 0, 0, 0, 0])

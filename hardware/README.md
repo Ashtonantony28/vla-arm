@@ -5,7 +5,7 @@ measured.** Kinematics, masses and servo ratings come from `../spec/kinematics.y
 
 | dir | what | regenerate |
 |---|---|---|
-| `cad/` | CadQuery parametric parts (base with 61812 yaw-bearing seat + desk-clamp tabs, shoulder bracket with turntable and counterbalance post, upper arm, forearm, wrist pitch/roll bracket, rack-and-pinion parallel gripper with TPU pads, wrist camera mount), servo placeholder, assembly + FK, interference/wall/bed/mass checks | `python -m cad.build` -> `cad/out/*.stl, *.step, cad_report.md` |
+| `cad/` | CadQuery parametric parts (base with 61816 yaw-bearing seat + desk-clamp tabs, shoulder bracket with turntable and counterbalance post, upper arm, forearm, wrist pitch/roll bracket, rack-and-pinion parallel gripper with TPU pads, wrist camera mount + gripper cap), STS3215 servo/horn from the datasheet, 6701/61816 bearings, M2/M3 screws, involute pinion, camera board; assembly + FK, wall/bed/mass checks; `audit.py` pairwise clash audit (zero pose, every joint swept, random poses, support graph); `render.py` offscreen renders | `python -m cad.build` -> `cad/out/*.stl, *.step, cad_report.md`; `python -m cad.audit --random 40` -> `cad/out/clash_report.md`; `PYOPENGL_PLATFORM=egl python -m cad.render` -> `cad/out/renders/` |
 | `analysis/` | static holding torque per joint, shoulder spring counterbalance sizing, 12 V current budget + PSU sizing, servo-bus timing | `python -m analysis.report` -> `analysis/budget_report.md` |
 | `board/` | STM32G474 controller schematic in SKiDL (explicit-pin parts, no KiCad libs), own ERC, MCU pin map with AF numbers, BOM | `python -m board.generate` -> `board/out/controller.net, bom.csv, mcu_pins.md, erc_report.md`; checklist in `board/design_review.md` |
 | `tests/` | pytest for all of the above | `python -m pytest` |
@@ -16,10 +16,10 @@ Setup (Python 3.13):
 cd hardware
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m cad.build && .venv/bin/python -m analysis.report && .venv/bin/python -m board.generate
-.venv/bin/python -m pytest -q          # ~2-3 min, CAD booleans dominate
+.venv/bin/python -m pytest -q          # ~25 min, CAD booleans dominate
 ```
 
-STEP files in `cad/out/` are git-ignored (regenerate); STLs are kept (all < 200 kB).
+STEP files in `cad/out/` are git-ignored (regenerate); STLs are kept (all < 3 MB).
 
 ## Mechanical design in one paragraph
 Every pitch joint uses the same pattern: the servo case sits in an "inner-layer" cradle of the parent link;
@@ -41,20 +41,32 @@ excluded); every part fits a 220x220x250 mm bed; mass estimate vs spec; torque/c
 against hand-checked cases; board ERC clean and proven to catch an open pin, a rail short and a missing
 decoupling cap; e-stop topology (firmware cannot override the loop).
 
+Clash audit (`cad/audit.py`, 2026-11-24): every pair of the 45 solids (printed parts, servo cases, horns,
+bearings, every screw, pinion teeth, camera board) is checked exactly at zero pose, at 25 poses per joint across
+the full spec range and at 40 random poses; overlaps > 0.001 mm3 fail, as do unexplained contacts closer than
+0.25 mm. Running contacts (horn on case, bearing races, gear mesh, jaw guides) are declared in the audit with
+their reason, and a contact graph proves no part floats. Servos are retained by M2 case screws into their
+cradles (roll and gripper servos by the gripper cap); horns by 4 x M3 plus the spline screw.
+
 Must be checked by a human / datasheet before ordering or printing:
-- **Servo envelope** (`cad/params.py: Servo`): 45.2 x 24.7 x 35 mm, horn centred, horn 20 x 3 mm, 55 g are
-  approximations. Measure a real STS3215 with calipers (output-shaft offset, mounting ears, horn screw
-  pattern) and re-run; the cradles, clevis plates and the gripper stack all derive from it.
-- Bearing 61812 dimensions/mass, fastener holes/heat-set inserts (not modelled), print orientation/supports.
+- **Servo geometry** (`cad/params.py: Servo`) now follows the STS3215 datasheet drawing (45.23 x 24.73 x 35,
+  output 12.5 mm off case centre, 20 mm aluminium horn). Still confirm with calipers on a real servo,
+  especially the case-screw pattern and horn PCD.
+- Bearing 61816 / 6701 dimensions and masses, heat-set inserts (screws are modelled into plain holes),
+  print orientation/supports.
 - Spring: pick a real extension spring for the rate/extension in `analysis/budget_report.md` and re-run.
 - Servo response latency and register map used in the bus timing (assumed 100 us; addresses 0x38-0x46).
 - Board: every `verify`/`TBD` BOM line, the medium-confidence AF mappings and recalled LQFP-64 pad numbers,
   servo bus logic level, servo connector type — see `board/design_review.md`.
 
 ## Known spec conflicts (spec/ not edited)
-- `shoulder_pitch` limit +1.30 rad is not reachable: with the shoulder axis 100 mm above the plate and a base
-  that must hold the yaw servo under a 78 mm bearing, the upper arm hits the turntable/base at ~+0.80 rad.
-  Either set the limit to ~0.80 rad or add a forward shoulder offset / raise the shoulder.
+- `shoulder_pitch` max is +0.60 rad since spec v1.2 (`spec/DECISIONS.md`): the real servo case is offset from
+  its output, which forced the 61816 bearing and a wider base, and the upper arm now reaches the base at
+  ~+0.63 rad. Keeping +0.75 would need the yaw servo mounted inverted.
+- The counterbalance spring sized in `analysis/budget_report.md` does not fit the post (about 145 mm at full
+  extension vs about 80 mm available). Options: a rear tail with a second pulley, 2:1 reeving, or a stronger
+  shoulder actuator. The spring is not modelled until one is chosen.
+- `armctl`'s capsule collision model was fitted to the previous CAD and should be refitted to these parts.
 - `elbow_pitch` +2.70 rad with the shoulder level drives the wrist into the base past ~+2.36 rad
   (pose-dependent self-collision; needs the host-side collision check).
 - 0.25 kg at full reach exceeds the 40 % continuous rating at shoulder (even counterbalanced) and elbow;

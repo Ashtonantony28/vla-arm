@@ -9,6 +9,27 @@ import pathlib
 import numpy as np
 
 from spec_loader import load_spec
+
+
+def spring_packaging(k, F_max, ext_max, G=79e3, tau_allow=800.0):
+    """Shortest extension spring (music wire) with rate k N/mm reaching F_max at ext_max extension.
+    Body = (n+1) d, each machine hook ~ 0.8 D. Returns the geometry and lengths (mm)."""
+    best = None
+    for d in np.arange(0.6, 2.51, 0.1):
+        for c in np.arange(5.0, 14.01, 0.25):
+            D = c * d
+            kw = (4 * c - 1) / (4 * c - 4) + 0.615 / c
+            if 8 * F_max * D / (math.pi * d ** 3) * kw > tau_allow:
+                continue
+            n = G * d ** 4 / (8 * D ** 3 * k)
+            if n < 3:
+                continue
+            L_free = (n + 1) * d + 2 * 0.8 * D
+            L_max = L_free + ext_max
+            if best is None or L_max < best["L_max"]:
+                best = dict(d=float(d), D=float(D), n=float(n), L_free=float(L_free), L_max=float(L_max),
+                            tau_allow=tau_allow)
+    return best
 from .budget import (G, ArmModel, BusTiming, ServoRating, SpringDesign, gravity_torques,
                      minimax_balance, spring_torque)
 
@@ -152,7 +173,7 @@ def build(q2_mech_max: float | None = None) -> str:
              "objects inside ~80 % reach or lower the rated payload.\n")
     L.append("Bearing load (yaw): overturning moment at full reach with payload = "
              f"{abs(gravity_torques(mods['spec masses'])['shoulder_pitch']):.2f} N*m (spec masses) plus the shoulder "
-             "bracket; carried by the 61812 thin-section bearing, not by the yaw servo.\n")
+             "bracket; carried by the 61816 thin-section bearing (80 x 100 x 10), not by the yaw servo.\n")
 
     # ---- spring
     L.append("## 2. Shoulder counterbalance spring\n")
@@ -172,6 +193,16 @@ def build(q2_mech_max: float | None = None) -> str:
              f"and >= {real['extension_max_mm']:.0f} mm safe working extension (two springs in parallel at half "
              "rate are fine). No spring part number is given: pick from a catalogue and re-run this report with "
              "the real rate. The post and pin see up to the max spring force above.\n")
+    pk = spring_packaging(real["k_N_per_mm"], real["F_max_N"], real["extension_max_mm"])
+    span = P.SHOULDER_Z + P.CB["a"] - P.CB_PULLEY["r"] - 4.0 - (P.TURNTABLE_T + 4.0)
+    L.append("**Packaging check (2026-11-24 CAD audit).** Shortest music-wire extension spring that meets the rate, "
+             f"force and extension above at a static shear stress <= {pk['tau_allow']:.0f} MPa: wire {pk['d']:.1f} mm, "
+             f"mean dia {pk['D']:.1f} mm, {pk['n']:.0f} active coils, free length incl. hooks {pk['L_free']:.0f} mm, "
+             f"**{pk['L_max']:.0f} mm at full extension**. The post offers {span:.0f} mm between its foot and the "
+             "pulley, so the spring this budget calls for does not fit the bracket. This is an open design item: "
+             "route the cable over a second pulley at the post foot to a spring along a rear tail of the shoulder "
+             "bracket, use 2:1 reeving with a stiffer, shorter spring, or replace the spring by a stronger "
+             "shoulder actuator. Until it is resolved the CAD models the pulley, axle and pin B but no spring.\n")
 
     # ---- current budget
     L.append("## 3. 12 V servo-rail current budget\n")

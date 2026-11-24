@@ -12,3 +12,11 @@
 - payload 0.25 → **0.20 kg**: the elbow's continuous limit at full reach. The shoulder counterbalance spring is **required**, not optional (without it even an empty arm exceeds the shoulder's continuous rating).
 - gripper current limit **1000 mA** (continuous rating), not stall.
 - PSU: **12 V ≥ 12.5 A** (was 10 A).
+
+## Spec v1.2 change (2026-11-24, from the CAD polish and full clash audit)
+- shoulder_pitch max +0.75 → **+0.60 rad**. The CAD now uses the STS3215 datasheet geometry: its output is
+  12.5 mm off the case centre, so the yaw servo case reaches r = 37.5 mm and no longer fits inside the
+  61812's 60 mm bore. The base now carries a 61816 (80 x 100 x 10); the wider housing and turntable meet the
+  upper arm at +0.627 rad. Every recorded sim dataset keeps the shoulder below -0.64 rad, so no data or
+  policy is affected. The alternative that keeps +0.75 (yaw servo mounted inverted in the shoulder bracket,
+  small bearing around a base hub) is a larger redesign, listed in hardware/README.md.

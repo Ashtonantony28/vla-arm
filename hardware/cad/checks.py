@@ -46,6 +46,23 @@ def cylinders(s: cq.Shape, radius: float, axis, tol=1e-3):
     return out
 
 
+def face_centroid(s: cq.Shape, normal, pick=min):
+    """Area-weighted centre of the planar faces with this outward normal at the extreme offset
+    (pick=min or max), e.g. a gripping face split into strips by grooves."""
+    n = np.asarray(normal, float)
+    fs = []
+    for f in s.Faces():
+        if f.geomType() != "PLANE":
+            continue
+        c = f.Center(); fn = f.normalAt(c)
+        if abs(np.array([fn.x, fn.y, fn.z]) @ n - 1) < 1e-6:
+            fs.append((float(np.array([c.x, c.y, c.z]) @ n), f))
+    off = pick(o for o, _ in fs)
+    sel = [f for o, f in fs if abs(o - off) < 1e-6]
+    A_ = sum(f.Area() for f in sel)
+    return sum(np.array([f.Center().x, f.Center().y, f.Center().z]) * f.Area() for f in sel) / A_
+
+
 def planes(s: cq.Shape, normal):
     """(offset along normal, centre) of planar faces whose outward normal equals `normal`."""
     n = np.asarray(normal, float)
@@ -78,14 +95,17 @@ def measured_dimensions() -> dict[str, dict]:
     # base: servo pocket floor (case bottom) + servo stack = yaw horn face height
     b = PT.base()
     floors = [z for z, c in planes(b, (0, 0, 1)) if abs(c[0]) < 20 and abs(c[1]) < 10 and z > 0.5]
-    out["base: plate -> yaw horn face"] = (min(floors) + P.SERVO.stack, sp["base_yaw"][2])
+    # the yaw horn sits YAW_HORN_UP above the yaw frame origin (turntable counterbore), see params
+    out["base: plate -> yaw frame (horn face - counterbore depth)"] = (min(floors) + P.SERVO.stack - P.YAW_HORN_UP,
+                                                                       sp["base_yaw"][2])
 
     # shoulder bracket: turntable underside (z=0) -> idler stub axis height
     sb = PT.shoulder_bracket()
     stub = cylinders(sb, P.STUB_R, (0, 1, 0))
     # horn mating face = highest downward-facing face of the turntable region (z < 5)
-    under = max(-off for off, c in planes(sb, (0, 0, -1)) if np.hypot(c[0], c[1]) < 5 and -off < 5)
-    out["shoulder bracket: yaw horn face -> shoulder axis"] = (stub[0][2] - under, sp["shoulder_pitch"][2])
+    zs = [-off for off, c in planes(sb, (0, 0, -1)) if np.hypot(c[0], c[1]) < 5]
+    under = min(zs, key=abs)                      # turntable underside = yaw frame origin
+    out["shoulder bracket: turntable underside -> shoulder axis"] = (stub[0][2] - under, sp["shoulder_pitch"][2])
 
     for name, builder, nxt in (("upper_arm", PT.upper_arm, "elbow_pitch"), ("forearm", PT.forearm, "wrist_pitch")):
         s = builder()
@@ -101,10 +121,10 @@ def measured_dimensions() -> dict[str, dict]:
     # gripper: back-wall rear face minus servo stack = roll horn face; pads' centre = TCP
     gb = PT.gripper_body()
     # end face of the roll-servo pocket (the case bottom seats here), centred on the roll axis
-    seat = [c for _, c in planes(gb, (-1, 0, 0)) if abs(c[1]) < 1 and abs(c[2]) < 6 and 20 < c[0] < 40]
+    seat = [c for _, c in planes(gb, (-1, 0, 0)) if abs(c[1] - P.SERVO.cx) < 1.5 and abs(c[2]) < 6 and 20 < c[0] < 45]
     horn_face = seat[0][0] - P.SERVO.stack
     pa = PT.pad(+1)
-    inner = [c for y, c in planes(pa, (0, -1, 0))][0]
+    inner = face_centroid(pa, (0, -1, 0), pick=max)
     out["gripper: roll horn face -> TCP (pad centre)"] = (inner[0] - horn_face, spec["tool"]["tcp"][0] * 1000)
     return out
 
@@ -125,7 +145,7 @@ def assembled_axes(q=None) -> dict[str, np.ndarray]:
     front = max(z for z, _ in planes(wb, (1, 0, 0)))
     pts["wrist_roll"] = (tf["wrist"] @ np.array([front, 0, 0, 1]))[:3]
     pa = PT.pad(+1)
-    inner = [c for y, c in planes(pa, (0, -1, 0))][0]
+    inner = face_centroid(pa, (0, -1, 0), pick=max)
     pts["tcp"] = (tf["jaw_a"] @ np.append(inner, 1))[:3]
     # ignore the y coordinate of the pitch stubs (they sit on the idler side of the joint)
     for k in ("shoulder_pitch", "elbow_pitch", "wrist_pitch"):
