@@ -130,13 +130,6 @@ def test_mass_estimate_vs_spec():
     assert total <= spec_total
 
 
-def test_counterbalance_pin_clears_post_over_full_shoulder_range():
-    for q in np.linspace(*C.joint_limits()["shoulder_pitch"], 25):
-        posed = {it.name: s for it, s in A.posed({"shoulder_pitch": q})}
-        # pin B lives on the upper arm, post on the shoulder bracket: their intersection volume must be 0
-        assert A.intersection_volume(posed["upper_arm"], posed["shoulder_bracket"]) < 1.0 or q > 0.80
-
-
 # ---------------------------------------------------------------- 2026-11-24 full-assembly audit
 def test_zero_pose_exact_no_overlap_with_teeth_and_fasteners():
     """Every part pair (printed + purchased, gear teeth and screws included): no overlap > 0.001 mm3."""

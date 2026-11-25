@@ -258,7 +258,7 @@ def _cradle(px: float, pz: float = 0.0, round_bottom: bool = True) -> cq.Shape:
 
 
 # ============================================================================ printed parts
-def pitch_link(g: P.LinkGeom, counterbalance_pin: bool = False) -> cq.Solid:
+def pitch_link(g: P.LinkGeom) -> cq.Solid:
     """Upper arm / forearm: proximal clevis (outer layer) -> bridge -> inner neck -> distal cradle."""
     L = g.length
     plates = _clevis_plates(g.plate_end, g.plate_h)
@@ -279,18 +279,11 @@ def pitch_link(g: P.LinkGeom, counterbalance_pin: bool = False) -> cq.Solid:
     else:
         parts.append(neck)
     parts.append(_cradle(L))
-    if counterbalance_pin:
-        b = P.CB["b"]
-        pin = cyl(P.CB["pin_r"], (b, P.CB["pin_y"][0] - 0.01, 0), (b, P.CB["pin_y"][1], 0))
-        pin = fillet_all(pin, 0.6, ">Y")
-        groove = ring(P.CB["pin_r"] - 0.8, P.CB["pin_r"] + 1, (b, P.CB_PLANE_Y - 0.8, 0), (b, P.CB_PLANE_Y + 0.8, 0))
-        boss = cyl(P.CB["pin_r"] + 3, (b, P.Y_HPLATE[1] - 0.01, 0), (b, P.Y_HPLATE[1] + 2.5, 0))
-        parts.append(union(cut(pin, groove), boss))
     return single_solid(union(*parts))
 
 
 def upper_arm() -> cq.Solid:
-    return pitch_link(P.UPPER_ARM, counterbalance_pin=True)
+    return pitch_link(P.UPPER_ARM)
 
 
 def forearm() -> cq.Solid:
@@ -344,25 +337,9 @@ def shoulder_bracket() -> cq.Solid:
     ped = box(cxw - P.CRADLE_X, cxw + P.CRADLE_X, P.Y_INNER[0], P.Y_INNER[1], P.TURNTABLE_T - 0.01, ped_top + 0.01)
     ped_slot = rbox(cxw - P.CRADLE_X - 1, cxw + P.CRADLE_X + 1, P.Y_INNER[0] + P.WALL, P.Y_INNER[1] - P.WALL,
                     P.TURNTABLE_T + P.WALL, ped_top - P.WALL, r=3.0, edges="|X")
-    cb = P.CB
-    z_a = z_axis + cb["a"]
-    post_top = z_a + 8.0
-    px0, px1 = cb["post_x"]
-    post = rbox(px0, px1, *cb["post_y"], P.TURNTABLE_T - 0.01, post_top, r=0.0)
-    # round the post top into a half-disc about the pulley axle
-    post = cut(post, box(px0 - 1, px1 + 1, cb["post_y"][0] - 1, cb["post_y"][1] + 1, z_a, post_top + 1))
-    post = union(post, cyl((px1 - px0) / 2, (0, cb["post_y"][0], z_a), (0, cb["post_y"][1], z_a)))
-    # pulley slot (open at the top) and axle hole
-    slot = box(px0 - 1, px1 + 1, *P.CB_PULLEY_SLOT, z_a - P.CB_PULLEY["r"] - 1.5, z_a + 20)
-    axle = cyl(P.CB_PULLEY["axle_r"], (0, cb["post_y"][0] - 1, z_a), (0, cb["post_y"][1] + 1, z_a))
-    # gusset tying the post to the pedestal
-    gus = union(*[(cq.Workplane("XZ", origin=(0, cb["post_y"][1], 0))
-                   .polyline([(sx * (px1 - 0.01), P.TURNTABLE_T - 0.01), (sx * (px1 + 12), P.TURNTABLE_T - 0.01),
-                              (sx * (px1 - 0.01), P.TURNTABLE_T + 24)]).close()
-                   .extrude(cb["post_y"][1] - cb["post_y"][0]).val()) for sx in (1, -1)])
-    body = union(tt, spigot, race_shoulder, cut(ped, ped_slot), _cradle(0.0, z_axis, round_bottom=False),
-                 cut(post, slot), gus)
-    tools = [axle]
+    # spec v1.3: no counterbalance post (STS3250 shoulder servo instead of a spring)
+    body = union(tt, spigot, race_shoulder, cut(ped, ped_slot), _cradle(0.0, z_axis, round_bottom=False))
+    tools = []
     # yaw horn: counterbore in the turntable underside + screw holes + head counterbores in the
     # pedestal floor (screws go in from inside the open pedestal)
     tools.append(cyl(P.HORN_CB_R, (0, 0, -1), (0, 0, P.YAW_HORN_UP)))
@@ -682,26 +659,6 @@ def gripper_cap_holes() -> list[cq.Shape]:
     hy, hz, yc, zg, x_roll, x_grip = _grip_frame()
     x1 = min(x_roll[0], x_grip[0])
     return [cyl(1.0, (x1 - 1, y, z), (x1 + 8.0, y, z)) for y, z in gripper_cap_screw_yz()]
-
-
-def cb_pulley() -> cq.Solid:
-    """Counterbalance cable pulley (purchased): 12 mm OD, grooved, on the post's axle (shoulder frame)."""
-    c = P.CB_PULLEY
-    za = P.SHOULDER_Z + P.CB["a"]
-    y0, y1 = P.CB_PLANE_Y - c["t"] / 2, P.CB_PLANE_Y + c["t"] / 2
-    wheel = cyl(c["r"], (0, y0, za), (0, y1, za))
-    groove = ring(c["r"] - 0.9, c["r"] + 1, (0, P.CB_PLANE_Y - 0.6, za), (0, P.CB_PLANE_Y + 0.6, za))
-    bore = cyl(c["axle_r"] - P.SHANK_CLR, (0, y0 - 1, za), (0, y1 + 1, za))   # runs on the pin
-    return single_solid(cut(wheel, groove, bore))
-
-
-def cb_axle() -> cq.Solid:
-    """M3 shoulder pin through the post and pulley, head on the outer cheek."""
-    za = P.SHOULDER_Z + P.CB["a"]
-    y0, y1 = P.CB["post_y"]
-    pin = cyl(P.CB_PULLEY["axle_r"] - P.SHANK_CLR, (0, y0, za), (0, y1 + 0.01, za))
-    head = cyl(2.75, (0, y1, za), (0, y1 + 2.0, za))
-    return single_solid(union(pin, head))
 
 
 # ============================================================================ registry

@@ -103,7 +103,7 @@ def test_bus_timing_hand_count():
 def test_report_generates_and_flags_payload():
     from analysis import report
     txt = report.build(q2_mech_max=0.80)
-    assert "PSU recommendation" in txt and "Counterbalance options" in txt
+    assert "PSU recommendation" in txt and "Why there is no counterbalance spring" in txt and "STS3250" in txt
     # sanity: the spec-mass shoulder torque at full reach is between 2 and 3 N*m (hand estimate 2.6)
     mods, _ = report.models()
     t = gravity_torques(mods["spec masses"])["shoulder_pitch"]

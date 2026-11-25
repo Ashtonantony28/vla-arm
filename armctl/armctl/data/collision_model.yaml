@@ -1,6 +1,6 @@
 # armctl collision model: capsules per moving link + static primitives for the base.
 # Units: metres. Refitted 2026-11-25 to the audited CAD (hardware/cad, spec v1.2: datasheet STS3215,
-# 61816 yaw bearing, 6701 idlers, screws, gripper cap, camera board).
+# 61816 yaw bearing, 6701 idlers, screws, gripper cap, camera board; v1.3: no counterbalance post).
 #
 # WHERE THE NUMBERS COME FROM
 # * Capsule segments are laid out by hand in armctl/tools/fit_capsules.py from the part dimensions
@@ -31,16 +31,12 @@ links:
     - {name: ped1, p0: [-0.026, 0.004, 0.019], p1: [-0.026, 0.004, 0.064], r: 0.0211}
     - {name: ped2, p0: [0.001, -0.016, 0.019], p1: [0.001, -0.016, 0.064], r: 0.0197}
     - {name: ped3, p0: [0.001, 0.004, 0.019], p1: [0.001, 0.004, 0.064], r: 0.0203}
-    - {name: post, p0: [0.0, 0.0315, 0.014], p1: [0.0, 0.0315, 0.1], r: 0.0145}
-    - {name: gus_p, p0: [0.02, 0.0315, 0.0105], p1: [0.01, 0.0315, 0.029], r: 0.0080}
-    - {name: gus_n, p0: [-0.02, 0.0315, 0.0105], p1: [-0.01, 0.0315, 0.029], r: 0.0079}
   upper_arm:
     - {name: disc, p0: [0.0, -0.0278, 0.0], p1: [0.0, 0.0238, 0.0], r: 0.0295}
     - {name: root0, p0: [0.014, -0.02575, 0.0], p1: [0.04, -0.02575, 0.0], r: 0.0272}
     - {name: root1, p0: [0.014, 0.02175, 0.0], p1: [0.04, 0.02175, 0.0], r: 0.0272}
     - {name: plate0, p0: [0.04, -0.02575, 0.0], p1: [0.112, -0.02575, 0.0], r: 0.0202}
     - {name: plate1, p0: [0.04, 0.02175, 0.0], p1: [0.112, 0.02175, 0.0], r: 0.0202}
-    - {name: cb_pin, p0: [0.07, 0.026, 0.0], p1: [0.07, 0.033, 0.0], r: 0.0055}
     - {name: neck0, p0: [0.112, -0.022, 0.0], p1: [0.158, -0.022, 0.0], r: 0.0155}
     - {name: neck1, p0: [0.112, -0.009, 0.0], p1: [0.158, -0.009, 0.0], r: 0.0155}
     - {name: neck2, p0: [0.112, 0.004, 0.0], p1: [0.158, 0.004, 0.0], r: 0.0155}

@@ -21,22 +21,18 @@ YP = (-25.75, 21.75)  # the two clevis side plates (outer layer, y -27.75..-23.7
 LAYOUT = {
     # shoulder bracket above the turntable (frame at the turntable underside, world z = 40 mm):
     # pedestal + shoulder cradle box x -38.3..13.3 (servo case offset 12.5 mm behind its output),
-    # y -27.8..15.3, z 7..75.6; counterbalance post x+-10 (gussets to +-22), y 27.5..37.5, z 7..110.
+    # y -27.8..15.3, z 7..75.6 (spec v1.3: no counterbalance post).
     # Turntable r=46, z 0..7 -> static cylinder.
     "shoulder": [
         *[(f"ped{i}", (x, y, 19.0), (x, y, 64.0), 14.0)
           for i, (x, y) in enumerate(((-26.0, -16.0), (-26.0, 4.0), (1.0, -16.0), (1.0, 4.0)))],
-        ("post", (0.0, 31.5, 14.0), (0.0, 31.5, 100.0), 11.0),
-        ("gus_p", (20.0, 31.5, 10.5), (10.0, 31.5, 29.0), 5.0),
-        ("gus_n", (-20.0, 31.5, 10.5), (-10.0, 31.5, 29.0), 5.0),
     ],
     # upper arm: R26 clevis disc at the shoulder axis (capsule along y); two tapered side plates in
-    # the outer layers to x=122 (hollow between them); bridge x 122..136; counterbalance pin
-    # y 23.75..37 at x=70; neck to the elbow cradle x 161.7..213.3 (3 capsules along y).
+    # the outer layers to x=122 (hollow between them); bridge x 122..136; neck to the elbow
+    # cradle x 161.7..213.3 (3 capsules along y).
     "upper_arm": [("disc", (0.0, -27.8, 0.0), (0.0, 23.8, 0.0), 26.0)]
     + [(f"root{i}", (14.0, y, 0.0), (40.0, y, 0.0), 21.0) for i, y in enumerate(YP)]
     + [(f"plate{i}", (40.0, y, 0.0), (112.0, y, 0.0), 14.0) for i, y in enumerate(YP)]
-    + [("cb_pin", (70.0, 26.0, 0.0), (70.0, 33.0, 0.0), 7.0)]
     + [(f"neck{i}", (112.0, y, 0.0), (158.0, y, 0.0), 13.0) for i, y in enumerate((-22.0, -9.0, 4.0, 17.0))]
     + [(f"cradle{i}", (x, -27.8, 0.0), (x, 16.0, 0.0), 18.0) for i, x in enumerate((170.0, 187.5, 205.0))],
     # forearm: disc at the elbow, two side plates to x=130, bridge, wrist-pitch cradle x 141.7..193.3.

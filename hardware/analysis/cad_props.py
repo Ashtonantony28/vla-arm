@@ -18,6 +18,8 @@ def link_mass_props() -> dict[str, dict]:
         link = lump.get(it.link, it.link)
         if it.printed:
             m = C.printed_mass_g(it.name, it.solid)
+        elif it.name == "servo_shoulder_case":
+            m = P.SHOULDER_SERVO_MASS_G   # spec v1.3: STS3250
         elif it.name.endswith("_case"):
             m = P.SERVO.mass_g
         elif it.name == "yaw_bearing":

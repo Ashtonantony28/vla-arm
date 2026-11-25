@@ -51,9 +51,10 @@ def test_zero_pose_tcp(model):
 def test_actuator_limits_match_servo(model):
     spec = load_spec()
     for i in range(5):
-        assert model.actuator_forcerange[i, 1] == pytest.approx(spec.stall_torque)
+        assert model.actuator_forcerange[i, 1] == pytest.approx(spec.stall_torque_of(spec.joints[i].name))
         assert tuple(model.actuator_ctrlrange[i]) == pytest.approx(spec.joints[i].limits)
     assert tuple(model.actuator_ctrlrange[5]) == pytest.approx(spec.gripper_limits)
+    assert spec.stall_torque_of("shoulder_pitch") == pytest.approx(4.9)   # spec v1.3: STS3250
 
 
 def _tcp_after(model, q6):

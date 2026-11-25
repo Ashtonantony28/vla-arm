@@ -81,6 +81,8 @@ Y_INNER = (Y_CAP_BOT, Y_BODY_TOP)                            # (-21.5, 16)
 # Idler side: the parent's printed stub carries a 6700-2RS bearing (10 x 15 x 4) pressed into the
 # child's idler plate. The bearing floats axially on the stub (non-locating side); the child is located
 # axially by the horn plate bolted to the servo horn (locating side).
+# spec v1.3: the shoulder servo is an STS3250 (same case as the STS3215, heavier)
+SHOULDER_SERVO_MASS_G = 1000.0 * _spec["servo_overrides"]["shoulder_pitch"]["mass_kg"]
 IDLER_BEARING = dict(name="6701-2RS (12x18x4)", d=12.0, D=18.0, B=4.0, mass_g=3.5)  # 12 mm bore leaves a 2.6 mm stub wall around the servo boss
 STUB_R = IDLER_BEARING["d"] / 2          # 6.0
 IDLER_BORE_R = IDLER_BEARING["D"] / 2    # 9.0 (bearing seat in the child idler plate)
@@ -125,16 +127,6 @@ HORN_CB_R = SERVO.horn_r + 0.4   # turntable counterbore for the horn flange
 TURNTABLE_R = BEARING["d"] / 2 + 6.0   # covers the inner race shoulder; smaller = more shoulder-down range
 SPIGOT_R = (BEARING["d"] / 2 - 2.4, BEARING["d"] / 2 - 0.1)  # inner-race spigot ring
 
-# ---------------------------------------------------------------- shoulder counterbalance
-CB = dict(
-    a=40.0,           # pulley anchor A height above shoulder axis (shoulder bracket post)
-    b=70.0,           # pin B distance along the upper arm from shoulder axis
-    post_y=(27.5, 35.5),   # clear of the M3 horn-screw heads on the upper-arm horn plate (y <= 26.75)
-    post_x=(-10.0, 10.0),
-    pin_r=4.0,
-    pin_y=(Y_HPLATE[1], 37.0),
-)
-
 # ---------------------------------------------------------------- wrist bracket
 WRIST_PLATE_H = 16.0
 WRIST_FRONT_T = 5.0
@@ -170,9 +162,6 @@ CAM_FACE_H = 38.0         # tilted face height (z)
 CAM_SCREW_X = (22.0, 32.0)
 PINION_SEAT = 3.9         # horn-screw head seat depth in the pinion (heads flush with its face)
 SERVO_SCREW = dict(r=1.0, head_r=1.9, head_h=1.3, cb=1.5, len=6.0, inset=3.3)  # M2 low-head into case bottom
-CB_PULLEY = dict(r=6.0, t=2.6, axle_r=1.5, name="12 mm grooved idler pulley on M3 shoulder pin")
-CB_PULLEY_SLOT = (29.9, 33.1)
-CB_PLANE_Y = 31.5        # cable plane (pulley mid-plane = pin groove)
 GRIP_CAP_T = 3.0          # gripper back cap (retains both gripper-body servos)
 SHANK_CLR = 0.05          # radial gap between a modelled screw shank and its tapped hole (avoids coincident faces)
 GUIDE_CLR = 0.2           # rack-to-guide running clearance (was 0.5)

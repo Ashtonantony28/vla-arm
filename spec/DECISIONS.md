@@ -20,3 +20,15 @@
   upper arm at +0.627 rad. Every recorded sim dataset keeps the shoulder below -0.64 rad, so no data or
   policy is affected. The alternative that keeps +0.75 (yaw servo mounted inverted in the shoulder bracket,
   small bearing around a base hub) is a larger redesign, listed in hardware/README.md.
+
+## Spec v1.3 change (2026-11-25, user decision after the counterbalance packaging check)
+- **Shoulder servo STS3215 → STS3250** (`servo_overrides.shoulder_pitch`): same case and bus protocol,
+  4.9 N*m stall (was 2.9), 74.5 g. **The counterbalance spring, its post, pulley and pin are removed.**
+  Why: the spring that balances the arm stores ~1.9 J. Every music-wire spring that does this is 110-125 mm
+  long at full extension, and the bracket offers ~80 mm. Taller posts, a moved pin, 2:1 reeving, parallel
+  springs and smaller spring loads were all checked, and none fits. The other options were a ~150 mm rear
+  spring tail sweeping the desk, or no spring with an STS3215, which cannot hold even the empty arm
+  continuously at full reach. The user picked the STS3250.
+- Consequence: at full reach the shoulder holds about 0.12 kg continuously (40 % of stall). 0.20 kg is an
+  intermittent load at 48 % of stall, the same class as the elbow. The STS3250's stall and rated currents
+  (4.2 A / 1.4 A) and its rated torque come from retailer listings and must be checked on the datasheet.

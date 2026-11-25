@@ -5,8 +5,8 @@ measured.** Kinematics, masses and servo ratings come from `../spec/kinematics.y
 
 | dir | what | regenerate |
 |---|---|---|
-| `cad/` | CadQuery parametric parts (base with 61816 yaw-bearing seat + desk-clamp tabs, shoulder bracket with turntable and counterbalance post, upper arm, forearm, wrist pitch/roll bracket, rack-and-pinion parallel gripper with TPU pads, wrist camera mount + gripper cap), STS3215 servo/horn from the datasheet, 6701/61816 bearings, M2/M3 screws, involute pinion, camera board; assembly + FK, wall/bed/mass checks; `audit.py` pairwise clash audit (zero pose, every joint swept, random poses, support graph); `render.py` offscreen renders | `python -m cad.build` -> `cad/out/*.stl, *.step, cad_report.md`; `python -m cad.audit --random 40` -> `cad/out/clash_report.md`; `PYOPENGL_PLATFORM=egl python -m cad.render` -> `cad/out/renders/` |
-| `analysis/` | static holding torque per joint, shoulder spring counterbalance sizing, 12 V current budget + PSU sizing, servo-bus timing | `python -m analysis.report` -> `analysis/budget_report.md` |
+| `cad/` | CadQuery parametric parts (base with 61816 yaw-bearing seat + desk-clamp tabs, shoulder bracket with turntable, upper arm, forearm, wrist pitch/roll bracket, rack-and-pinion parallel gripper with TPU pads, wrist camera mount + gripper cap), STS3215 servo/horn from the datasheet (STS3250 at the shoulder, same case), 6701/61816 bearings, M2/M3 screws, involute pinion, camera board; assembly + FK, wall/bed/mass checks; `audit.py` pairwise clash audit (zero pose, every joint swept, random poses, support graph); `render.py` offscreen renders | `python -m cad.build` -> `cad/out/*.stl, *.step, cad_report.md`; `python -m cad.audit --random 40` -> `cad/out/clash_report.md`; `PYOPENGL_PLATFORM=egl python -m cad.render` -> `cad/out/renders/` |
+| `analysis/` | static holding torque per joint (per-joint servo ratings), why the shoulder has no spring, 12 V current budget + PSU sizing, servo-bus timing | `python -m analysis.report` -> `analysis/budget_report.md` |
 | `board/` | STM32G474 controller schematic in SKiDL (explicit-pin parts, no KiCad libs), own ERC, MCU pin map with AF numbers, BOM | `python -m board.generate` -> `board/out/controller.net, bom.csv, mcu_pins.md, erc_report.md`; checklist in `board/design_review.md` |
 | `tests/` | pytest for all of the above | `python -m pytest` |
 
@@ -29,8 +29,8 @@ occupy different y-layers near each joint, which is what lets the elbow fold +-1
 case rides in the gripper with its horn bolted to the wrist bracket (the 45 mm pitch-to-roll distance in
 the spec is too short for the case to sit behind the horn). The gripper servo sits above the roll servo and
 drives a module-1.5, 25-tooth pinion between two racks (exactly linear: 30 mm per jaw at 1.60 rad = spec's
-60 mm). The shoulder counterbalance is a cable from a pin on the upper arm over a pulley on a post of the
-yaw-fixed bracket to an extension spring: an equivalent zero-free-length spring, torque k*a*b*cos(q).
+60 mm). The shoulder has no counterbalance spring: a spring that balances the arm is ~125 mm long at full
+extension and the bracket has ~80 mm, so spec v1.3 uses an STS3250 (4.9 N*m stall, same case) at the shoulder.
 
 ## Verified by code vs. needs a human
 Verified by code (tests): each part is one valid closed solid; joint-axis distances measured from the parts'
@@ -54,7 +54,7 @@ Must be checked by a human / datasheet before ordering or printing:
   especially the case-screw pattern and horn PCD.
 - Bearing 61816 / 6701 dimensions and masses, heat-set inserts (screws are modelled into plain holes),
   print orientation/supports.
-- Spring: pick a real extension spring for the rate/extension in `analysis/budget_report.md` and re-run.
+- STS3250 (shoulder): stall/rated current and rated torque are from retailer listings; check the Feetech datasheet.
 - Servo response latency and register map used in the bus timing (assumed 100 us; addresses 0x38-0x46).
 - Board: every `verify`/`TBD` BOM line, the medium-confidence AF mappings and recalled LQFP-64 pad numbers,
   servo bus logic level, servo connector type — see `board/design_review.md`.
@@ -63,13 +63,9 @@ Must be checked by a human / datasheet before ordering or printing:
 - `shoulder_pitch` max is +0.60 rad since spec v1.2 (`spec/DECISIONS.md`): the real servo case is offset from
   its output, which forced the 61816 bearing and a wider base, and the upper arm now reaches the base at
   ~+0.63 rad. Keeping +0.75 would need the yaw servo mounted inverted.
-- The counterbalance spring sized in `analysis/budget_report.md` does not fit the post (about 145 mm at full
-  extension vs about 80 mm available). Options: a rear tail with a second pulley, 2:1 reeving, or a stronger
-  shoulder actuator. The spring is not modelled until one is chosen.
-- `armctl`'s capsule collision model was fitted to the previous CAD and should be refitted to these parts.
 - `elbow_pitch` +2.70 rad with the shoulder level drives the wrist into the base past ~+2.36 rad
   (pose-dependent self-collision; needs the host-side collision check).
-- 0.25 kg at full reach exceeds the 40 % continuous rating at shoulder (even counterbalanced) and elbow;
-  continuous limit at full reach is ~0.20 kg (elbow).
+- 0.20 kg at full reach is intermittent for the shoulder (STS3250 at 48 % of stall; continuous ~0.12 kg) and
+  at the limit for the elbow (continuous ~0.20 kg).
 - Mass split: wrist 75 g / gripper 110 g in the spec vs 14 g / 171 g here (roll servo case in the gripper);
   the sum matches (185 g).

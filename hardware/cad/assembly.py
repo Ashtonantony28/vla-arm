@@ -95,8 +95,6 @@ def items(teeth: bool = False) -> tuple[Item, ...]:
     out.append(Item("camera_screws", "gripper", place(PT.camera_screws(), cam), False))
     out.append(Item("camera_mount_screws", "gripper", PT.cam_mount_screws(), False))
     out.append(Item("gripper_cap_screws", "gripper", PT.gripper_cap_screws(), False))
-    out.append(Item("cb_pulley", "shoulder", PT.cb_pulley(), False))
-    out.append(Item("cb_axle", "shoulder", PT.cb_axle(), False))
     return tuple(out)
 
 
