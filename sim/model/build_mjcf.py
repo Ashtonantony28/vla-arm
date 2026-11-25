@@ -102,7 +102,6 @@ def effective_inertias(spec: Spec) -> list[float]:
 def build(spec: Spec) -> str:
     J = {jt.name: jt for jt in spec.joints}
     m = spec.masses
-    kp = spec.stall_torque / SERVO_SATURATION_ERR_RAD
     inertias = effective_inertias(spec)
 
     L_ua = J["elbow_pitch"].origin[0]
@@ -160,9 +159,11 @@ def build(spec: Spec) -> str:
     act_lines = []
     for name, inertia in zip(ACTION_NAMES[:5], inertias):
         jt = J[name]
+        tau = spec.stall_torque_of(name)          # spec v1.3: STS3250 at the shoulder
+        kp = tau / SERVO_SATURATION_ERR_RAD
         act_lines.append(
             f'    <position name="{name}" joint="{name}" kp="{kp:.6g}" kv="{link_kv(kp, inertia):.4g}" '
-            f'ctrlrange="{f(*jt.limits)}" forcerange="{f(-spec.stall_torque, spec.stall_torque)}" forcelimited="true"/>')
+            f'ctrlrange="{f(*jt.limits)}" forcerange="{f(-tau, tau)}" forcelimited="true"/>')
     act_lines.append(
         f'    <position name="gripper" joint="finger_l" gear="{grip_gear:.6g}" kp="{grip_kp:.6g}" '
         f'kv="{link_kv(grip_kp, grip_inertia):.4g}" ctrlrange="{f(*spec.gripper_limits)}" '

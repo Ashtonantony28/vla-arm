@@ -25,7 +25,7 @@ def export_parts() -> list[dict]:
         s = PT.build_printed(name, teeth=True)          # printable variant (real gear teeth)
         s_chk = PT.build_printed(name, teeth=False)     # pitch-envelope variant used by checks
         cq.exporters.export(s, str(OUT / f"{name}.step"))
-        cq.exporters.export(s, str(OUT / f"{name}.stl"), tolerance=0.05, angularTolerance=0.2)
+        cq.exporters.export(s, str(OUT / f"{name}.stl"), tolerance=0.05, angularTolerance=0.1)  # 0.05 mm chord, ~6 deg facets: below FDM resolution, keeps STLs < 2 MB
         bb = s.BoundingBox()
         fit, how = C.fits_bed(s)
         wt = C.wall_thickness(s_chk)
@@ -33,8 +33,8 @@ def export_parts() -> list[dict]:
                          mass_g=C.printed_mass_g(name, s), bbox=(bb.xlen, bb.ylen, bb.zlen),
                          fits=fit, orientation=how, wall_min=wt["min"], wall_p1=wt["p1"],
                          stl_kb=(OUT / f"{name}.stl").stat().st_size / 1024, **C.solid_report(s)))
-    # servo placeholder for reference
-    cq.exporters.export(PT.servo_body().fuse(PT.servo_horn()), str(OUT / "servo_placeholder_STS3215_APPROX.step"))
+    # servo model (STS3215 envelope from the datasheet) for reference
+    cq.exporters.export(PT.servo_body().fuse(PT.servo_horn()), str(OUT / "servo_STS3215.step"))
     # zero-pose assembly
     asm = cq.Assembly(name="vla_arm_zero_pose")
     for it, shp in A.posed({}, teeth=True):
@@ -87,10 +87,11 @@ def report(rows) -> str:
         ok = "yes" if (abs(a[0] - lim[0]) < 1e-9 and abs(a[1] - lim[1]) < 1e-9) else "**NO**"
         L.append(f"| {jn} | [{lim[0]:+.2f}, {lim[1]:+.2f}] | [{a[0]:+.3f}, {a[1]:+.3f}] | [{b[0]:+.3f}, {b[1]:+.3f}] | {ok} |")
     L.append("\nShoulder: with the shoulder axis only 100 mm above the plate (spec) and the base housing the yaw "
-             "servo under a 78 mm bearing, the upper arm reaches the base/turntable at about +0.80 rad (46 deg down); "
-             "the spec limit +1.30 rad is not mechanically reachable. Elbow: folding down past ~+2.36 rad with the "
-             "shoulder at zero drives the wrist into the base (a pose-dependent self-collision for the host-side "
-             "checker, not an adjacent-part clash).\n")
+             "servo under a 61816 (80 x 100 mm) bearing, the upper arm reaches the base at about +0.63 rad; spec v1.2 "
+             "sets the limit to +0.60 rad (recorded sim data never goes below -0.64). Elbow: folding down past "
+             "~+2.36 rad with the shoulder at zero drives the wrist into the base (a pose-dependent self-collision "
+             "for the host-side checker, not an adjacent-part clash). Full pairwise clash audit over sweeps and "
+             "random poses: `python -m cad.audit --random 40` -> cad/out/clash_report.md.\n")
     return "\n".join(L)
 
 

@@ -19,8 +19,10 @@ joints:
   - name: shoulder_pitch
     axis: [0, 1, 0]
     origin: [0.0, 0.0, 0.060]     # yaw bearing to shoulder axis (shoulder height 0.100 m)
-    limits: [-1.80, 0.75]         # -pi/2 = upper arm straight up. v1.1: max was 1.30; CAD shows the
-                                  # upper arm hits the base at +0.80 (hardware/cad/out/cad_report.md)
+    limits: [-1.80, 0.60]         # -pi/2 = upper arm straight up. v1.1: max 1.30 -> 0.75. v1.2 (2026-11-24):
+                                  # 0.75 -> 0.60. The real STS3215 (output 12.5 mm off the case centre) needs
+                                  # a 100 mm yaw bearing, so the upper arm meets the base at +0.627
+                                  # (hardware/cad/out/clash_report.md). No recorded sim data goes above -0.64.
     vmax: 2.5
   - name: elbow_pitch
     axis: [0, 1, 0]
@@ -58,12 +60,22 @@ servo:
   max_continuous_current_a: 1.0
   stall_current_a: 2.7
 
+servo_overrides:                  # v1.3: joints whose servo differs from `servo` (same STS bus protocol)
+  shoulder_pitch:
+    model: STS3250-C001, 12 V     # same 45.22 x 24.72 x 35 mm case as the STS3215 (drop-in mount)
+    stall_torque_nm: 4.9          # 50 kg*cm at 12 V (retailer listings; verify on the Feetech datasheet)
+    rated_torque_nm: 1.57         # 16 kg*cm manufacturer "rated" torque
+    max_continuous_current_a: 1.4 # rated current (one listing; verify)
+    stall_current_a: 4.2
+    mass_kg: 0.0745
+
 masses_kg:                        # estimates for sim and torque budget (printed PETG + servo)
   base_link: 0.350
-  shoulder_link: 0.110
+  shoulder_link: 0.130             # v1.3: +20 g for the STS3250 shoulder servo carried by the bracket
   upper_arm: 0.140
   forearm: 0.120
   wrist: 0.075
   gripper: 0.110
-payload_kg: 0.200                 # v1.1: was 0.250; 0.20 kg is the continuous limit at full reach (elbow),
-                                  # and the shoulder needs the counterbalance spring (hardware/analysis/budget_report.md)
+payload_kg: 0.200                 # v1.1: was 0.250; 0.20 kg is the continuous limit at full reach (elbow).
+                                  # v1.3: no counterbalance spring; the STS3250 shoulder holds 0.20 kg at full
+                                  # reach intermittently (hardware/analysis/budget_report.md)

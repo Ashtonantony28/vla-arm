@@ -109,10 +109,11 @@ def test_reproduces_cad_wrist_into_base(cm):
 
 
 def test_reproduces_cad_shoulder_into_base(cm):
-    """CAD report: shoulder all-pairs free range ends at +0.802 (contact in [0.802, 0.822]);
-    the capsule model is conservative (fitted to enclose every CAD point)."""
+    """CAD (2026-11-24 audit, spec v1.2): the upper arm reaches the base at about +0.627 rad, which
+    is why the spec limit is +0.60; the capsule model is conservative (fitted to enclose every CAD
+    point), so it must flag contact between the spec limit and the CAD contact."""
     q, what = first_contact(1, 0.0, 1.3, check_table=False)
-    assert 0.76 <= q <= 0.822, q
+    assert 0.60 <= q <= 0.627, q
     assert "upper_arm" in what and "base" in what
 
 
@@ -131,17 +132,21 @@ def test_self_collision_gripper_folded_onto_forearm():
     # the gripper still clears the forearm over the whole range
     assert q is None, (q, what)
     # but with the elbow folded back and the arm raised, pitching the wrist down brings the
-    # gripper onto the shoulder bracket
+    # gripper onto the base (exact CAD: the jaws are inside the base at 1.2 rad) and, with the
+    # base check off, onto the upper-arm root / shoulder bracket
+    q, what = first_contact(3, 0.0, 1.9, base=[0, -0.82, 2.29, 0, 0, 1.0], check_table=False)
+    assert q is not None and q <= 1.2 and "base" in what, (q, what)
     q, what = first_contact(3, 0.0, 1.9, base=[0, -0.82, 2.29, 0, 0, 1.0], check_table=False, check_base=False)
-    assert q is not None and "shoulder" in what, (q, what)
+    assert q is not None and ("shoulder" in what or "upper_arm" in what), (q, what)
 
 
 def test_margin_and_details(cm):
     m = CollisionModel(margin=0.02, check_table=False)
-    c = m.check(np.zeros(6))  # forearm/gripper are ~9 mm apart at zero pose
+    c = m.check(np.zeros(6))  # forearm/gripper capsules are ~17 mm apart at zero pose
     assert not c.ok[0]
     assert any("forearm" in h and "gripper" in h for h, _ in c.hits[0])
-    ref = CollisionModel(check_table=False).check(np.zeros(6)).min_clearance[0]
+    # exact reference (above exact_below the default model only reports a lower bound)
+    ref = CollisionModel(check_table=False, exact_below=1.0).check(np.zeros(6)).min_clearance[0]
     assert c.min_clearance[0] == pytest.approx(ref - 0.02, abs=1e-9)
 
 

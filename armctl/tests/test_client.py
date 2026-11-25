@@ -186,10 +186,10 @@ def test_client_safety_shim_applied():
         rep = cli.set_targets(q, 100)
         assert rep.q_out[0] == pytest.approx(SAFE[0] + 0.6)
         # from an unsafe previous pose, a command that makes it worse is rejected, unsent
-        bad = np.array([0.0, 0.6, 0.0, -1.2, 0.0, 0.0])
+        bad = np.array([0.0, 0.45, 0.0, -1.2, 0.0, 0.0])   # spec v1.2: shoulder max is 0.60
         cli.safety.reset(bad)
         worse = bad.copy()
-        worse[1] += 0.3
+        worse[1] += 0.15
         n_st = sum(f.type == P.MsgType.SET_TARGETS for f in board.received)
         with pytest.raises(SafetyRejected):
             cli.set_targets(worse, 100)

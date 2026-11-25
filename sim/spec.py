@@ -4,7 +4,7 @@ Nothing in sim/ hard-codes a link length, limit or mass: everything goes through
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -41,6 +41,11 @@ class Spec:
     masses: dict[str, float]
     payload: float
     raw: dict
+    stall_overrides: dict[str, float] = field(default_factory=dict)  # spec v1.3 servo_overrides
+
+    def stall_torque_of(self, name: str) -> float:
+        """Stall torque (N*m) of the servo driving joint ``name`` (v1.3: shoulder is an STS3250)."""
+        return self.stall_overrides.get(name, self.stall_torque)
 
     def joint(self, name: str) -> Joint:
         return next(j for j in self.joints if j.name == name)
@@ -93,4 +98,5 @@ def load_spec(path: str | Path = SPEC_PATH) -> Spec:
         masses={k: float(v) for k, v in raw["masses_kg"].items()},
         payload=float(raw["payload_kg"]),
         raw=raw,
+        stall_overrides={k: float(v["stall_torque_nm"]) for k, v in (raw.get("servo_overrides") or {}).items()},
     )

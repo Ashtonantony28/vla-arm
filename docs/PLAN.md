@@ -58,7 +58,7 @@ Mobile base, bimanual, ROS 2 as a hard dependency (a thin ROS 2 bridge can be ad
 - Own CAD (Onshape or FreeCAD), 3D-printed PLA+/PETG links, sized around 12 V serial bus servos (Feetech STS3215-class, ~30 kg·cm stall). The open SO-100/SO-101 arms prove this servo class works for tabletop manipulation; we use them as a reference for proportions only and design our own links, wrist and gripper.
 - Joint layout: base yaw, shoulder pitch, elbow pitch, wrist pitch, wrist roll, gripper. That is 5 DOF + gripper; "6-DOF" counts the gripper, as is usual in this class. A true 6-axis arm (extra wrist yaw) is possible but adds weight at the end of the chain and makes the leader arm harder; I recommend 5+1 (decision D1).
 - Gripper: parallel jaw with TPU fingertips, wrist camera mounted on the gripper body.
-- Shoulder gets a spring counterbalance to cut holding torque, which matters for servo heat during long data sessions.
+- Shoulder gets a spring counterbalance to cut holding torque, which matters for servo heat during long data sessions. (Superseded by spec v1.3: the spring does not fit; the shoulder uses a stronger STS3250 servo instead.)
 
 ### 3.2 Electronics (the custom board)
 | Block | Choice | Why |

@@ -152,10 +152,10 @@ point-only shim of the first version took ~0.6 ms).
 ### Collision model
 
 `CollisionModel` (`collision.py`) represents every moving link as a union of capsules (segment +
-radius) in its joint frame: shoulder bracket 3, upper arm 11 (clevis disc, two side plates with
-the hollow between them, bridge, counterbalance pin, neck, elbow cradle), forearm 8, wrist 4,
-gripper body 9 (incl. the wrist camera), each jaw 3, the jaws sliding ±18.75 mm/rad of gripper
-angle. The base is static boxes (plate, clamp tabs, ribs) and vertical cylinders (housing, and
+radius) in its joint frame (refitted 2026-11-25 to the audited CAD): shoulder pedestal 4, upper
+arm 12 (clevis disc, tapered plate roots, side plates with the hollow between them, neck, elbow
+cradle), forearm 12, wrist 4, gripper body 14 (incl. cap and wrist camera), each jaw 3, the jaws sliding ±18.75 mm/rad of gripper
+angle. The base is static boxes (plate, clamp tabs, gussets) and vertical cylinders (housing, and
 the turntable, which yaws with joint 0). The table is `z = 0`. Checks: all non-adjacent link
 pairs, every link vs the base, every link except the yaw bracket vs the table.
 

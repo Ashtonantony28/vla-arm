@@ -17,58 +17,55 @@ import numpy as np
 
 # link -> list of (name, p0_mm, p1_mm, hint_mm). Gripper and jaw frames = wrist_roll joint frame
 # (jaw frames are additionally shifted by +-PINION_R*q_gripper along y).
-YP = (-24.0, 21.0)  # the two clevis side plates (outer layer, y -26..-22 and 19..23); hollow between
+YP = (-25.75, 21.75)  # the two clevis side plates (outer layer, y -27.75..-23.75 and 19.75..23.75); hollow between
 LAYOUT = {
-    # shoulder bracket above the turntable (frame at the yaw horn face, world z = 40 mm):
-    # pedestal + shoulder cradle box x+-25.8, y -21.5..16 (-27 at the horn), z 6..75.6;
-    # counterbalance post x+-10, y 26..34, z 6..108. Turntable r=36, z 0..6 -> static cylinder.
+    # shoulder bracket above the turntable (frame at the turntable underside, world z = 40 mm):
+    # pedestal + shoulder cradle box x -38.3..13.3 (servo case offset 12.5 mm behind its output),
+    # y -27.8..15.3, z 7..75.6 (spec v1.3: no counterbalance post).
+    # Turntable r=46, z 0..7 -> static cylinder.
     "shoulder": [
-        ("ped_n", (-12.9, -2.75, 20.0), (-12.9, -2.75, 62.0), 23.0),
-        ("ped_p", (12.9, -2.75, 20.0), (12.9, -2.75, 62.0), 23.0),
-        ("post", (0.0, 30.0, 12.0), (0.0, 30.0, 102.0), 11.0),
+        *[(f"ped{i}", (x, y, 19.0), (x, y, 64.0), 14.0)
+          for i, (x, y) in enumerate(((-26.0, -16.0), (-26.0, 4.0), (1.0, -16.0), (1.0, 4.0)))],
     ],
-    # upper arm: R26 clevis discs at the shoulder axis (capsule along y, exact in-plane);
-    # two side plates z+-14 at y -26..-22 / 19..23 to x=108 (hollow between them: the base
-    # housing reaches up between the plates); full-width bridge x 108..122; counterbalance pin
-    # y 23..35 at x=70; neck z+-11, y -21.5..16 to x=174; elbow cradle x 174..226, z+-15.6, y -27..16
-    # (3 capsules along y so the cradle's flat end is not over-extended).
-    "upper_arm": [("disc", (0.0, -26.0, 0.0), (0.0, 23.0, 0.0), 26.0)]
-    + [(f"plate{i}", (14.0, y, 0.0), (108.0, y, 0.0), 14.2) for i, y in enumerate(YP)]
-    + [("bridge", (115.0, -26.0, 0.0), (115.0, 23.0, 0.0), 15.7)]
-    + [("cb_pin", (70.0, 29.0, 0.0), (70.0, 29.0, 0.0), 8.0)]
-    + [(f"neck{i}", (126.0, y, 0.0), (168.0, y, 0.0), 12.7) for i, y in enumerate((-15.25, -2.75, 9.75))]
-    + [(f"cradle{i}", (x, -27.0, 0.0), (x, 16.0, 0.0), 18.0) for i, x in enumerate((182.0, 200.0, 218.0))],
-    # forearm: disc at the elbow, two side plates z+-13 to x=126, bridge x 126..140, neck z+-10
-    # to 154, wrist-pitch
-    # cradle x 154..206, z+-15.6, y -27..16.
-    "forearm": [("disc", (0.0, -26.0, 0.0), (0.0, 23.0, 0.0), 26.0)]
-    + [(f"plate{i}", (14.0, y, 0.0), (126.0, y, 0.0), 13.2) for i, y in enumerate(YP)]
-    + [("bridge", (133.0, -26.0, 0.0), (133.0, 23.0, 0.0), 14.8)]
-    + [("neck", (140.0, -5.0, 0.0), (150.0, -5.0, 0.0), 14.0)]
-    + [(f"cradle{i}", (x, -27.0, 0.0), (x, 16.0, 0.0), 18.0) for i, x in enumerate((162.0, 180.0, 198.0))],
-    # wrist bracket: R26 disc around the wrist-pitch axis, two side plates z+-16 to x=40, front
-    # plate x 40..45 full width, roll horn (x 45..48, r 10).
-    "wrist": [("disc", (0.0, -26.0, 0.0), (0.0, 23.0, 0.0), 26.0)]
-    + [(f"side{i}", (20.0, y, 0.0), (40.0, y, 0.0), 16.2) for i, y in enumerate(YP)]
-    + [("front", (42.5, -26.0, 0.0), (42.5, 23.0, 0.0), 16.2)],
-    # gripper body (rotates with wrist roll): servo sleeve x 3..38, y+-25.3, z -15..42 (3 rows
-    # along y); back plate + rack guides + pinion + gripper horn x 38..49, y+-40, z -15..57.4
-    # (4 rows along y); wrist camera mount x 6..34, y+-18, z 42..76 (2 rows).
-    "gripper": [(f"sleeve{i}", (20.5, -18.0, z), (20.5, 18.0, z), 21.0) for i, z in enumerate((-5.5, 13.5, 32.6))]
-    + [(f"guide{i}", (43.5, -34.0, z), (43.5, 34.0, z), 12.0) for i, z in enumerate((-6.0, 12.0, 30.0, 48.0))]
-    + [(f"camera{i}", (20.0, -10.0, z), (20.0, 10.0, z), 18.0) for i, z in enumerate((50.7, 67.7))],
-    # jaw A (+y): finger x 49.8..78, y 0..8 (pad + finger), z -12..10 (2 capsules along z, so
-    # the fingertip is not over-extended along x); lower rack x 41..49 along y.
+    # upper arm: R26 clevis disc at the shoulder axis (capsule along y); two tapered side plates in
+    # the outer layers to x=122 (hollow between them); bridge x 122..136; neck to the elbow
+    # cradle x 161.7..213.3 (3 capsules along y).
+    "upper_arm": [("disc", (0.0, -27.8, 0.0), (0.0, 23.8, 0.0), 26.0)]
+    + [(f"root{i}", (14.0, y, 0.0), (40.0, y, 0.0), 21.0) for i, y in enumerate(YP)]
+    + [(f"plate{i}", (40.0, y, 0.0), (112.0, y, 0.0), 14.0) for i, y in enumerate(YP)]
+    + [(f"neck{i}", (112.0, y, 0.0), (158.0, y, 0.0), 13.0) for i, y in enumerate((-22.0, -9.0, 4.0, 17.0))]
+    + [(f"cradle{i}", (x, -27.8, 0.0), (x, 16.0, 0.0), 18.0) for i, x in enumerate((170.0, 187.5, 205.0))],
+    # forearm: disc at the elbow, two side plates to x=130, bridge, wrist-pitch cradle x 141.7..193.3.
+    "forearm": [("disc", (0.0, -27.8, 0.0), (0.0, 23.8, 0.0), 26.0)]
+    + [(f"root{i}", (14.0, y, 0.0), (40.0, y, 0.0), 21.0) for i, y in enumerate(YP)]
+    + [(f"plate{i}", (40.0, y, 0.0), (118.0, y, 0.0), 13.0) for i, y in enumerate(YP)]
+    + [(f"neck{i}", (118.0, y, 0.0), (140.0, y, 0.0), 13.0) for i, y in enumerate((-22.0, -9.0, 4.0, 17.0))]
+    + [(f"cradle{i}", (x, -27.8, 0.0), (x, 16.0, 0.0), 18.0) for i, x in enumerate((150.0, 167.5, 185.0))],
+    # wrist bracket: R26 disc around the wrist-pitch axis, two side plates to x=40, front plate
+    # x 40..45 full width, roll horn + screws (x 37..49.5, r 10).
+    "wrist": [("disc", (0.0, -27.8, 0.0), (0.0, 23.8, 0.0), 26.0)]
+    + [(f"side{i}", (20.0, y, 0.0), (40.0, y, 0.0), 16.0) for i, y in enumerate(YP)]
+    + [("front", (43.0, -27.8, 0.0), (43.0, 23.8, 0.0), 16.0)],
+    # gripper body + cap (rotate with wrist roll): servo sleeve x 1.5..44, y -41.8..40, z -19..45
+    # (3 rows along y); back wall + rack guides + pinion + gripper horn x 40..53 (4 rows along y);
+    # wrist camera mount + camera board x 6..40, y+-18, z 45..87 (2 rows).
+    "gripper": [(f"sleeve{i}", (x, -30.0, z), (x, 28.0, z), 13.0)
+                for i, (x, z) in enumerate((x, z) for x in (12.0, 32.0) for z in (-8.0, 12.0, 32.0))]
+    + [(f"guide{i}", (47.0, -34.0, z), (47.0, 34.0, z), 12.0) for i, z in enumerate((-6.0, 12.0, 30.0, 48.0))]
+    + [(f"camera{i}", (x, -9.0, z), (x, 9.0, z), 12.0)
+       for i, (x, z) in enumerate((x, z) for x in (14.0, 31.0) for z in (56.0, 76.0))],
+    # jaw A (+y): finger x 53.8..80, y 0..8 incl. pad, z -12..12 (2 capsules along z); lower rack
+    # x 45..53 along -y.
     "jaw_a": [
-        ("finger0", (56.8, 4.0, -6.0), (56.8, 4.0, 4.0), 10.0),
-        ("finger1", (71.0, 4.0, -6.0), (71.0, 4.0, 4.0), 10.0),
-        ("rack", (45.0, -30.0, 4.0), (45.0, 4.0, 4.0), 7.0),
+        ("finger0", (60.0, 4.0, -6.0), (60.0, 4.0, 6.0), 10.0),
+        ("finger1", (73.0, 4.0, -6.0), (73.0, 4.0, 6.0), 10.0),
+        ("rack", (49.0, -30.0, 4.0), (49.0, 4.0, 4.0), 7.0),
     ],
-    # jaw B (-y): finger x 49.8..78, y -8..0, z -12..53.8 (carries the upper rack x 41..49).
+    # jaw B (-y): finger x 53.8..80, y -8..0, z -12..53.9 (spine up to the upper rack x 45..53).
     "jaw_b": [
-        ("finger0", (56.8, -4.0, -6.0), (56.8, -4.0, 48.0), 10.0),
-        ("finger1", (71.0, -4.0, -6.0), (71.0, -4.0, 48.0), 10.0),
-        ("rack", (45.0, -4.0, 50.0), (45.0, 30.0, 50.0), 7.0),
+        ("finger0", (60.0, -4.0, -6.0), (60.0, -4.0, 48.0), 10.0),
+        ("finger1", (73.0, -4.0, -6.0), (73.0, -4.0, 48.0), 10.0),
+        ("rack", (49.0, -4.0, 50.0), (49.0, 30.0, 50.0), 7.0),
     ],
 }
 
@@ -76,12 +73,12 @@ LAYOUT = {
 # the yaw axis, so it is the same solid for every yaw angle.
 STATIC = [
     ("plate", "base", "box", dict(lo=(-70.0, -60.0, 0.0), hi=(70.0, 60.0, 6.0))),
-    ("tab_p", "base", "box", dict(lo=(-20.0, 59.0, 0.0), hi=(20.0, 95.0, 8.0))),
-    ("tab_n", "base", "box", dict(lo=(-20.0, -95.0, 0.0), hi=(20.0, -59.0, 8.0))),
-    ("rib_p", "base", "box", dict(lo=(-2.0, 38.25, 7.99), hi=(2.0, 78.0, 18.0))),
-    ("rib_n", "base", "box", dict(lo=(-2.0, -78.0, 7.99), hi=(2.0, -38.25, 18.0))),
-    ("housing", "base", "zcyl", dict(xy=(0.0, 0.0), r=42.5, z=(0.0, 39.5))),
-    ("turntable", "shoulder", "zcyl", dict(xy=(0.0, 0.0), r=36.0, z=(40.0, 46.0))),
+    ("tab_p", "base", "box", dict(lo=(-20.0, 52.0, 0.0), hi=(20.0, 95.0, 8.0))),
+    ("tab_n", "base", "box", dict(lo=(-20.0, -95.0, 0.0), hi=(20.0, -52.0, 8.0))),
+    ("gus_p", "base", "box", dict(lo=(-2.0, 52.0, 7.99), hi=(2.0, 54.5, 30.0))),
+    ("gus_n", "base", "box", dict(lo=(-2.0, -54.5, 7.99), hi=(2.0, -52.0, 30.0))),
+    ("housing", "base", "zcyl", dict(xy=(0.0, 0.0), r=53.5, z=(0.0, 39.5))),
+    ("turntable", "shoulder", "zcyl", dict(xy=(0.0, 0.0), r=46.0, z=(40.0, 47.0))),
 ]
 
 
