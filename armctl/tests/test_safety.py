@@ -152,14 +152,15 @@ def test_self_collision_scaled_back_along_path():
     s = SafetyShim()
     # arm raised, elbow folded back over the shoulder: pitching the wrist up swings the gripper
     # into the shoulder bracket
-    start = np.array([-1.489, -1.282, -2.455, -0.6, 0.606, 1.418])
+    # (exact CAD: 25.6 mm clear at the start, gripper body into the bracket at the target)
+    start = np.array([-1.489, -1.282, -2.455, -0.3, 0.606, 1.418])
     target = np.array([-1.489, -1.282, -2.455, -1.075, 0.606, 1.418])
     assert s.violations(start) == []
     assert any("shoulder" in v for v in s.collision_violations(target))
     s.reset(start)
     r = s.filter(target, 5.0)
     assert not r.rejected and "scaled step" in r.reasons[-1] and "collision" in r.reasons[-1]
-    assert -1.075 < r.q_out[3] < -0.6
+    assert -1.075 < r.q_out[3] < -0.3
     assert s.violations(r.q_out) == []
 
 
