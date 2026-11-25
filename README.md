@@ -4,6 +4,17 @@ A low-cost desktop robot arm (5 joints + gripper) with its own STM32G474 control
 
 Plan: [docs/PLAN.md](docs/PLAN.md). Decisions and spec changes: [spec/DECISIONS.md](spec/DECISIONS.md).
 
+![MuJoCo twin: scripted expert doing pick-and-place, stacking and language-conditioned sorting (simulation, 2x speed)](docs/media/arm-demo.gif)
+
+<sub>**Simulation, 2× speed.** The MuJoCo twin generated from `spec/kinematics.yaml` (servo torque limits, gripper
+coupling, cameras), driven by the scripted expert that records the training demonstrations. The inset is the
+wrist camera the policies see. Full 44 s clip at real speed: [arm-demo.mp4](docs/media/arm-demo.mp4).
+Regenerate: `MUJOCO_GL=egl python -m sim.demo_video`.</sub>
+
+| pick_place | stack | sort (needs the instruction) |
+|:---:|:---:|:---:|
+| <img src="docs/media/arm-pick_place.jpg" width="280"> | <img src="docs/media/arm-stack.jpg" width="280"> | <img src="docs/media/arm-sort.jpg" width="280"> |
+
 | Directory | What | Tests |
 |---|---|---|
 | `spec/` | Single source of truth: kinematics, host↔board protocol (v1.1) | — |
